@@ -1,0 +1,8 @@
+# Sanal Ortam (Virtual Environment)
+venv/
+.venv/
+env/
+
+# Python Önbellek Dosyaları
+__pycache__/
+*.pyc
