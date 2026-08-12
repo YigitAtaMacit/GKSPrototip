@@ -212,12 +212,14 @@ while True:
 
             if yatay != "merkez" and yatay != onceki_yatay:
                 sayaclar[yatay] += 1
-                bakis_olay_kaydedici.olay_tetikle(yatay)
+                if A.BAKIS_OLAY_KESITI_AKTIF:
+                    bakis_olay_kaydedici.olay_tetikle(yatay)
             onceki_yatay = yatay
 
             if dikey != "merkez" and dikey != onceki_dikey:
                 sayaclar[dikey] += 1
-                bakis_olay_kaydedici.olay_tetikle(dikey)
+                if A.BAKIS_OLAY_KESITI_AKTIF:
+                    bakis_olay_kaydedici.olay_tetikle(dikey)
             onceki_dikey = dikey
     except Exception:
         pass
@@ -238,7 +240,8 @@ while True:
             goz_kapali_simdi = kirpma_skoru > A.ESIK_BLINK
             if goz_kapali_simdi and not goz_kapali_onceki:
                 sayaclar["kirpma"] += 1
-                kirpma_olay_kaydedici.olay_tetikle("kirpma")
+                if A.KIRPMA_OLAY_KESITI_AKTIF:
+                    kirpma_olay_kaydedici.olay_tetikle("kirpma")
             goz_kapali_onceki = goz_kapali_simdi
 
         if A.AKTIF_POSE and pose_landmarker is not None:
@@ -259,7 +262,8 @@ while True:
                     sol_kol_aktif = G.kol_aktif_mi(onceki_sol_kol_aktif, sol_omuz, sol_dirsek, sol_bilek)
                     if sol_kol_aktif and not onceki_sol_kol_aktif:
                         sayaclar["sol_kol"] += 1
-                        sol_kol_olay_kaydedici.olay_tetikle("sol_kol")
+                        if A.KOL_OLAY_KESITI_AKTIF:
+                            sol_kol_olay_kaydedici.olay_tetikle("sol_kol")
                     onceki_sol_kol_aktif = sol_kol_aktif
                 # else: bilek/omuz kadraj disinda/belirsiz - guvenilmez tahmini
                 # SAYMA, onceki durumu da DEGISTIRME (gurultuden sayma).
@@ -271,7 +275,8 @@ while True:
                     sag_kol_aktif = G.kol_aktif_mi(onceki_sag_kol_aktif, sag_omuz, sag_dirsek, sag_bilek)
                     if sag_kol_aktif and not onceki_sag_kol_aktif:
                         sayaclar["sag_kol"] += 1
-                        sag_kol_olay_kaydedici.olay_tetikle("sag_kol")
+                        if A.KOL_OLAY_KESITI_AKTIF:
+                            sag_kol_olay_kaydedici.olay_tetikle("sag_kol")
                     onceki_sag_kol_aktif = sag_kol_aktif
                 # else: bilek/omuz kadraj disinda/belirsiz - guvenilmez tahmini
                 # SAYMA, onceki durumu da DEGISTIRME (gurultuden sayma).
@@ -305,12 +310,15 @@ while True:
 
     # Video kaydi - TUM overlay'ler cizildikten SONRA bellege ekleniyor.
     kaydedici.kare_ekle(kare)
-    # Olay kesitleri - HER karede, HER kategori icin cagrilir (onbellegi
-    # surekli guncel tutar, olay olsun olmasin).
-    sol_kol_olay_kaydedici.kare_ekle(kare)
-    sag_kol_olay_kaydedici.kare_ekle(kare)
-    kirpma_olay_kaydedici.kare_ekle(kare)
-    bakis_olay_kaydedici.kare_ekle(kare)
+    # Olay kesitleri - HER karede, SADECE aktif olan kategoriler icin cagrilir
+    # (onbellegi surekli guncel tutar, olay olsun olmasin).
+    if A.KOL_OLAY_KESITI_AKTIF:
+        sol_kol_olay_kaydedici.kare_ekle(kare)
+        sag_kol_olay_kaydedici.kare_ekle(kare)
+    if A.KIRPMA_OLAY_KESITI_AKTIF:
+        kirpma_olay_kaydedici.kare_ekle(kare)
+    if A.BAKIS_OLAY_KESITI_AKTIF:
+        bakis_olay_kaydedici.kare_ekle(kare)
 
     if ilk_kare_mi:
         print(f"[zaman] ilk kare islendi (4 modelin ilk 'isinmasi' dahil): {time.time() - _t6:.1f}s")

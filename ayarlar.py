@@ -14,6 +14,14 @@ BURASI = Path(__file__).resolve().parent
 AKTIF_POSE = True
 AKTIF_EL = True
 
+# Otomatik OLAY KESITI (once/sonra video klibi) kategori basina ac/kapa -
+# simdilik UCU DE kapali. SAYACLAR (KIRPMA/SOL KOL/SAG KOL/SOL/SAG/YUKARI/
+# ASAGI) bundan ETKILENMEZ, hepsi normal calismaya devam eder - sadece
+# otomatik VIDEO KLIBI alinmiyor. Tekrar acmak istersen ilgiliyi True yap.
+KOL_OLAY_KESITI_AKTIF = False
+KIRPMA_OLAY_KESITI_AKTIF = False
+BAKIS_OLAY_KESITI_AKTIF = False
+
 # False yaparsan ilgili gorsel EKRANDA CIZILMEZ ama tespit (ve dolayisiyla
 # ilgili sayaclar/kalibrasyon) YINE DE CALISIR - sadece gorsel gizlenir.
 GOVDE_CIZIMI_GOSTER = False
