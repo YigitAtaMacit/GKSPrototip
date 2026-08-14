@@ -1,30 +1,36 @@
 """L2CS-Net + MediaPipe: TEK webcam'de bakis yonu + goz kirpma + el/kol/vucut
 iskeleti - HEPSI AYNI ANDA, AYNI PENCEREDE.
 
-BU DOSYA, calistirdigin TEK dosya (`python l2cs_birlesik.py`). Kod
-okunabilirlik icin AYNI klasordeki kucuk modullere bolundu, ama hepsi bu
-dosya uzerinden TEK PARCA halinde calisir:
-  ayarlar.py   - TUM sabitler/esikler/acik-kapali bayraklar (davranisi
-                 degistirmek istersen SADECE burayi duzenle)
-  modeller.py  - L2CS-Net + MediaPipe model yukleme/indirme
-  gorsellik.py - iskelet cizimi + geometri yardimcilari (dirsek acisi,
-                 gorunurluk kontrolu, EMA yumusatma)
-  kayit.py     - kesit (JPEG) / video (MP4) kaydi (VideoKaydedici sinifi)
-  l2cs_birlesik.py (BU DOSYA) - hepsini birbirine baglayan ana webcam dongusu
+BU DOSYA, ana OpenVINO surumune (gaze_birlesik.py) ALTERNATIF, YEDEK bir
+bakis motoru - L2CS-Net (RetinaFace+ResNet50, Gaze360 ile egitilmis).
+Neden ayri/yedek: L2CS kendi yuz dedektorunu (RetinaFace) calistirdigi icin
+kadraja ikinci bir kisi/el girdiginde OpenVINO surumune gore daha yavas/
+donmaya yatkin oluyordu (bkz. proje gecmisi) - ama Gaze360 ResNet50'si daha
+"olgun"/test edilmis bir model oldugu icin referans/karsilastirma amacli
+veya OpenVINO modeli yetersiz kaldiginda geri donmek icin burada HAZIR
+tutuluyor. Calistirmak icin: `python l2cs_birlesik.py`.
 
-TEK bir cv2.VideoCapture ile hem L2CS-Net (bakis) hem MediaPipe FaceLandmarker
-(kirpma) hem MediaPipe PoseLandmarker (govde) hem MediaPipe HandLandmarker
-(eller) calistirir, hepsinin sonucunu AYNI karenin uzerine cizer.
+KENDINE YETERLI (self-contained) dosya: bu dosyaya OZEL ayarlar (agirlik
+yolu, esikler, kenar mesafeleri) asagida BU DOSYANIN ICINDE tanimli -
+ayarlar.py'deki OpenVINO'ya ozel degerlerden (BAKIS_ASAGI_SIZINTI_K,
+ESIK_BAKIS_XY, GOZ_KIRPINTI_MARJI vb.) BAGIMSIZDIR, boylece OpenVINO
+tarafinda yapilan ince ayarlar bunu bozmaz/etkilemez. Kamera, kol/kirpma
+esikleri, olay kesiti sureleri, klasor yollari gibi BAKISTAN BAGIMSIZ
+ayarlar yine ORTAK ayarlar.py'den (A.) gelir.
 
 ONCE agirlik dosyasi gerekli: L2CSNet_gaze360.pkl - GitHub'daki L2CS-Net
-sayfasindan indirip BU klasore koy. MediaPipe model dosyalari
-(face_landmarker.task, pose_landmarker_lite.task, hand_landmarker.task)
-ilk calistirmada otomatik indirilir.
+sayfasindan (https://github.com/Ahmednull/L2CS-Net) indirip BU klasore koy.
+Ayrica `pip install torch l2cs` gerekir (OpenVINO surumunden FARKLI
+bagimliliklar - ikisini ayni anda kurman gerekebilir). MediaPipe model
+dosyalari (face_landmarker.task, pose_landmarker_lite.task,
+hand_landmarker.task) ilk calistirmada otomatik indirilir (gaze_birlesik.py
+ile ORTAK, zaten inmisse tekrar inmez).
 
 PERFORMANS UYARISI: Tek karede DORT model (RetinaFace+L2CS, FaceLandmarker,
 PoseLandmarker, HandLandmarker) calisiyor, bu yuzden FPS bunlari ayri ayri
-calistirmaktan dusuk olabilir. Yavas gelirse ayarlar.py'deki AKTIF_POSE /
-AKTIF_EL bayraklarini False yap.
+calistirmaktan dusuk olabilir; kadraja ikinci bir yuz girerse (RetinaFace
+onu da islemeye calisir) yavaslama/donma gorulebilir. Yavas gelirse
+ayarlar.py'deki AKTIF_POSE / AKTIF_EL bayraklarini False yap.
 
 SOL KOL / SAG KOL sayaclari - IKI AYRI tetikleyiciden HERHANGI BIRI olusunca
 artar (transitleri, yani "az once yoktu simdi var" anini yakalar):
@@ -44,13 +50,6 @@ yoneticisi var, "videolar/" altinda:
   goz_kirpma/  - KIRPMA sayaci artinca
   goz_bakisi/  - SOL/SAG/YUKARI/ASAGI bakis yonu sayaclarindan biri artinca
 Bu, 'v' tusuyla acilan MANUEL kayittan BAGIMSIZ, her zaman arka planda calisir.
-Bir kategorinin penceresi ACIKKEN (henuz yazilmadan) O KATEGORIDE ikinci bir
-olay olursa klip BITMEZ, penceresi o yeni olayin da +SONRA_SANIYE'sini
-kapsayacak sekilde UZAR - yani ayni kategoride art arda gelen olaylar TEK,
-daha UZUN bir klipte birlesir; hicbir olayin "sonrasi" kirpilmaz. Kategori
-tamamen OLAY_SONRA_SANIYE kadar sakin kalinca o kategorinin klibi yazilir.
-Kategoriler birbirinden BAGIMSIZDIR (orn. ayni anda sol kol kalkip goz
-kirparsa, iki AYRI klip - biri sol_kol/'a biri goz_kirpma/'ya - yazilir).
 
 Kontroller:
   c = kalibre et (kameraya duz bakarken bas, bakis sapmasini sifirlar)
@@ -59,6 +58,8 @@ Kontroller:
   q = cikis
 """
 import time
+
+import types
 
 import cv2
 import mediapipe as mp
@@ -69,14 +70,71 @@ import gorsellik as G
 import kayit as K
 import modeller as M
 
+# --- Bu dosyaya OZEL L2CS ayarlari (ortak ayarlar.py'den BAGIMSIZ) --------
+AKTIF_GAZE_L2CS = True  # False yaparsan L2CS hic yuklenmez, sadece kirpma/kol/govde calisir
+
+L2CS_AGIRLIK = A.BURASI / "L2CSNet_gaze360.pkl"
+L2CS_ESIK_ACI = 0.08              # radyan, ~4.5 derece - duz bakis "olu bolgesi"
+L2CS_MAKS_ACI_SICRAMA = 0.35      # radyan, ~20 derece - karede izin verilen maks pitch/yaw degisimi
+L2CS_KENAR_MESAFE_YATAY = 0.50    # SOL/SAG icin merkezden mesafe (yuz genisligi carpani)
+L2CS_KENAR_MESAFE_UST = 0.20      # YUKARI icin merkezden mesafe
+L2CS_KENAR_MESAFE_ALT = 0.40      # ASAGI icin merkezden mesafe
+
+
+def _l2cs_pipeline_yukle():
+    """L2CS-Net (ResNet50 + RetinaFace) pipeline'ini yukler.
+
+    NOT: torch/l2cs import'lari BILEREK burada, fonksiyon icinde (lazy) -
+    AKTIF_GAZE_L2CS=False iken bu fonksiyon hic cagrilmiyor, yani bu agir
+    import'larin suresi de HIC harcanmiyor.
+    """
+    import torch
+    from l2cs import Pipeline
+
+    if not L2CS_AGIRLIK.exists():
+        raise SystemExit(
+            f"Once L2CSNet_gaze360.pkl dosyasini indirip {A.BURASI} icine koy "
+            "(l2cs_birlesik.py docstring'ine bak)."
+        )
+
+    _t0 = time.time()
+    torch.backends.cudnn.benchmark = False
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[zaman] torch/cuda hazir: {time.time() - _t0:.1f}s")
+
+    _t1 = time.time()
+    gaze = Pipeline(weights=str(L2CS_AGIRLIK), arch="ResNet50", device=device)
+    print(f"[zaman] L2CS Pipeline (ResNet50 + RetinaFace) yuklendi: {time.time() - _t1:.1f}s")
+    return gaze
+
+
 # --- Modelleri yukle ----------------------------------------------------
-gaze = M.gaze_pipeline_yukle()
+if AKTIF_GAZE_L2CS:
+    gaze = _l2cs_pipeline_yukle()
+else:
+    gaze = None
+    print("[bilgi] AKTIF_GAZE_L2CS=False - L2CS-Net YUKLENMEDI. Bakis yonu (SOL/SAG/YUKARI/ASAGI) sayaclari ve yuz oku calismayacak.")
 
 _t2 = time.time()
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(A.KAMERA_INDEKSI)
 if not cap.isOpened():
-    raise SystemExit("Webcam acilamadi. Baska uygulama kullaniyor olabilir.")
-print(f"[zaman] webcam acildi: {time.time() - _t2:.1f}s")
+    raise SystemExit(
+        f"Webcam acilamadi (indeks {A.KAMERA_INDEKSI}). Baska uygulama "
+        "kullaniyor olabilir ya da ayarlar.py'deki KAMERA_INDEKSI yanlis "
+        "kamerayi gosteriyor olabilir (0, 1, 2... dene)."
+    )
+if A.KAMERA_COZUNURLUK_ZORLA:
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*A.KAMERA_FOURCC))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, A.KAMERA_GENISLIK)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, A.KAMERA_YUKSEKLIK)
+    cap.set(cv2.CAP_PROP_FPS, A.KAMERA_FPS)
+gercek_genislik = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+gercek_yukseklik = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+gercek_fps = cap.get(cv2.CAP_PROP_FPS)
+print(
+    f"[zaman] webcam acildi (indeks {A.KAMERA_INDEKSI}): {time.time() - _t2:.1f}s "
+    f"- kameranin kendi/varsayilan modu: {gercek_genislik}x{gercek_yukseklik}@{gercek_fps:.0f}fps"
+)
 
 face_landmarker, pose_landmarker, hand_landmarker = M.mediapipe_landmarker_lari_yukle()
 
@@ -91,6 +149,16 @@ onceki_yatay = "merkez"
 onceki_dikey = "merkez"
 onceki_sol_kol_aktif = False
 onceki_sag_kol_aktif = False
+
+# Kimlik kilidi durumu - SADECE MediaPipe tarafini (kirpma + kol) kapsar.
+# L2CS'in KENDI bakis tespiti (RetinaFace, asagidaki gaze.step() cagrisi)
+# BAGIMSIZ bir dedektor oldugu icin bu kilidin disinda kalir - kadrajda
+# ikinci bir kisi varsa L2CS'in bakis kismi hala "ilk bulunan yuz"
+# mantigiyla calisir (bkz. ayarlar.py KIMLIK_KILIDI_AKTIF notu).
+kilitli_yuz_merkez = None
+yuz_kayip_kare = 0
+kilitli_govde_merkez = None
+govde_kayip_kare = 0
 
 # Yuz henuz bulunmadan once (ilk kareler) cizilmesin diye baslangic degerleri.
 cizgi_sol_x = cizgi_sag_x = cizgi_ust_y = cizgi_alt_y = None
@@ -149,6 +217,10 @@ while True:
     if not ok:
         break
 
+    # Yakinlastirma en basta uygulanir - sonrasindaki HER SEY (tespit,
+    # cizim, kayit) zaten yakinlastirilmis kare uzerinden calisir.
+    kare = G.dijital_yakinlastir(kare, A.DIJITAL_YAKINLASTIRMA)
+
     if ilk_kare_mi:
         _t6 = time.time()
 
@@ -156,73 +228,74 @@ while True:
     yuz_bulundu_bu_kare = False
 
     # --- L2CS-Net: bakis yonu ------------------------------------------------
-    try:
-        sonuc = gaze.step(kare)
-        if len(sonuc.pitch) > 0:
-            son_pitch_ham = float(sonuc.pitch[0])
-            son_yaw_ham = float(sonuc.yaw[0])
-            yuz_bulundu_bu_kare = True
+    if AKTIF_GAZE_L2CS and gaze is not None:
+        try:
+            sonuc = gaze.step(kare)
+            if len(sonuc.pitch) > 0:
+                son_pitch_ham = float(sonuc.pitch[0])
+                son_yaw_ham = float(sonuc.yaw[0])
+                yuz_bulundu_bu_kare = True
 
-            pitch = son_pitch_ham - BIAS_PITCH
-            yaw = son_yaw_ham - BIAS_YAW
+                pitch = son_pitch_ham - BIAS_PITCH
+                yaw = son_yaw_ham - BIAS_YAW
 
-            bbox = sonuc.bboxes[0]
-            x_min, y_min, x_max, y_max = [int(v) for v in bbox]
-            if A.YUZ_CIZIMI_GOSTER:
-                cv2.rectangle(kare, (x_min, y_min), (x_max, y_max), (0, 255, 0), 1)
+                bbox = sonuc.bboxes[0]
+                x_min, y_min, x_max, y_max = [int(v) for v in bbox]
+                if A.YUZ_CIZIMI_GOSTER:
+                    cv2.rectangle(kare, (x_min, y_min), (x_max, y_max), (0, 255, 0), 1)
 
-            merkez_x = (bbox[0] + bbox[2]) / 2.0
-            merkez_y = (bbox[1] + bbox[3]) / 2.0
-            uzunluk = bbox[2] - bbox[0]
+                merkez_x = (bbox[0] + bbox[2]) / 2.0
+                merkez_y = (bbox[1] + bbox[3]) / 2.0
+                uzunluk = bbox[2] - bbox[0]
 
-            # Yumusatma: ozellikle yuz kucukken (uzaktayken) pitch/yaw ve bbox
-            # tahmini daha gurultulu oluyor - HAM degerler yerine yumusatilmis
-            # (EMA) degerleri kullaniyoruz ki ok/kutu titremesin. pitch/yaw
-            # icin ayrica MAKS_ACI_SICRAMA ile tek karelik "cilginca" outlier
-            # sicramalar da kirpiliyor (bkz. gorsellik.yumusat).
-            pitch = yumusak_pitch = G.yumusat(yumusak_pitch, pitch, A.MAKS_ACI_SICRAMA)
-            yaw = yumusak_yaw = G.yumusat(yumusak_yaw, yaw, A.MAKS_ACI_SICRAMA)
-            merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
-            merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
-            uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
+                # Yumusatma: ozellikle yuz kucukken (uzaktayken) pitch/yaw ve bbox
+                # tahmini daha gurultulu oluyor - HAM degerler yerine yumusatilmis
+                # (EMA) degerleri kullaniyoruz ki ok/kutu titremesin. pitch/yaw
+                # icin ayrica L2CS_MAKS_ACI_SICRAMA ile tek karelik "cilginca"
+                # outlier sicramalar da kirpiliyor (bkz. gorsellik.yumusat).
+                pitch = yumusak_pitch = G.yumusat(yumusak_pitch, pitch, L2CS_MAKS_ACI_SICRAMA)
+                yaw = yumusak_yaw = G.yumusat(yumusak_yaw, yaw, L2CS_MAKS_ACI_SICRAMA)
+                merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
+                merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
+                uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
 
-            # Kenar "kutusu" YUZE GORE - yuz kutusunun genisligiyle olceklenir
-            # ve merkezi her kare yuzun merkezine tasinir, yani sen hareket
-            # ettikce kutu da SENINLE birlikte kayar.
-            cizgi_sol_x = int(merkez_x - uzunluk * A.KENAR_MESAFE_YATAY)
-            cizgi_sag_x = int(merkez_x + uzunluk * A.KENAR_MESAFE_YATAY)
-            cizgi_ust_y = int(merkez_y - uzunluk * A.KENAR_MESAFE_UST)
-            cizgi_alt_y = int(merkez_y + uzunluk * A.KENAR_MESAFE_ALT)
+                # Kenar "kutusu" YUZE GORE - yuz kutusunun genisligiyle olceklenir
+                # ve merkezi her kare yuzun merkezine tasinir, yani sen hareket
+                # ettikce kutu da SENINLE birlikte kayar.
+                cizgi_sol_x = int(merkez_x - uzunluk * L2CS_KENAR_MESAFE_YATAY)
+                cizgi_sag_x = int(merkez_x + uzunluk * L2CS_KENAR_MESAFE_YATAY)
+                cizgi_ust_y = int(merkez_y - uzunluk * L2CS_KENAR_MESAFE_UST)
+                cizgi_alt_y = int(merkez_y + uzunluk * L2CS_KENAR_MESAFE_ALT)
 
-            dx = -uzunluk * np.sin(pitch) * np.cos(yaw)
-            dy = -uzunluk * np.sin(yaw)
-            ucur_x = merkez_x + dx
-            ucur_y = merkez_y + dy
+                dx = -uzunluk * np.sin(pitch) * np.cos(yaw)
+                dy = -uzunluk * np.sin(yaw)
+                ucur_x = merkez_x + dx
+                ucur_y = merkez_y + dy
 
-            duz_bakiyor = abs(pitch) < A.ESIK_ACI and abs(yaw) < A.ESIK_ACI
+                duz_bakiyor = abs(pitch) < L2CS_ESIK_ACI and abs(yaw) < L2CS_ESIK_ACI
 
-            if A.YUZ_CIZIMI_GOSTER and not duz_bakiyor:
-                cv2.arrowedLine(
-                    kare, (int(merkez_x), int(merkez_y)), (int(ucur_x), int(ucur_y)),
-                    (0, 0, 255), 2, cv2.LINE_AA, tipLength=0.18,
-                )
+                if A.YUZ_CIZIMI_GOSTER and not duz_bakiyor:
+                    cv2.arrowedLine(
+                        kare, (int(merkez_x), int(merkez_y)), (int(ucur_x), int(ucur_y)),
+                        (0, 0, 255), 2, cv2.LINE_AA, tipLength=0.18,
+                    )
 
-            yatay = "sol" if ucur_x > cizgi_sag_x else "sag" if ucur_x < cizgi_sol_x else "merkez"
-            dikey = "asagi" if ucur_y > cizgi_alt_y else "yukari" if ucur_y < cizgi_ust_y else "merkez"
+                yatay = "sol" if ucur_x > cizgi_sag_x else "sag" if ucur_x < cizgi_sol_x else "merkez"
+                dikey = "asagi" if ucur_y > cizgi_alt_y else "yukari" if ucur_y < cizgi_ust_y else "merkez"
 
-            if yatay != "merkez" and yatay != onceki_yatay:
-                sayaclar[yatay] += 1
-                if A.BAKIS_OLAY_KESITI_AKTIF:
-                    bakis_olay_kaydedici.olay_tetikle(yatay)
-            onceki_yatay = yatay
+                if yatay != "merkez" and yatay != onceki_yatay:
+                    sayaclar[yatay] += 1
+                    if A.BAKIS_OLAY_KESITI_AKTIF:
+                        bakis_olay_kaydedici.olay_tetikle(yatay)
+                onceki_yatay = yatay
 
-            if dikey != "merkez" and dikey != onceki_dikey:
-                sayaclar[dikey] += 1
-                if A.BAKIS_OLAY_KESITI_AKTIF:
-                    bakis_olay_kaydedici.olay_tetikle(dikey)
-            onceki_dikey = dikey
-    except Exception:
-        pass
+                if dikey != "merkez" and dikey != onceki_dikey:
+                    sayaclar[dikey] += 1
+                    if A.BAKIS_OLAY_KESITI_AKTIF:
+                        bakis_olay_kaydedici.olay_tetikle(dikey)
+                onceki_dikey = dikey
+        except Exception:
+            pass
 
     # --- MediaPipe: kirpma + govde + eller (AYNI kare, AYNI mp_image) -------
     try:
@@ -231,8 +304,28 @@ while True:
         kare_zaman_damgasi_ms += 33
 
         landmarker_sonuc = face_landmarker.detect_for_video(mp_image, kare_zaman_damgasi_ms)
-        if landmarker_sonuc.face_blendshapes:
-            skorlar = {b.category_name: b.score for b in landmarker_sonuc.face_blendshapes[0]}
+
+        # --- Kimlik kilidi: adaylar arasindan "kilitli kisiyi" sec (SADECE
+        # kirpma/MediaPipe tarafi icin - L2CS'in kendi bakis tespiti bunun
+        # disinda, bkz. dosya basindaki durum degiskeni notu).
+        secilen_yuz_i = None
+        if landmarker_sonuc.face_landmarks:
+            if A.KIMLIK_KILIDI_AKTIF:
+                yuz_merkezleri = []
+                yuz_buyuklukleri = []
+                for aday in landmarker_sonuc.face_landmarks:
+                    ax1, ay1, ax2, ay2 = G.yuz_bbox_hesapla(aday, w, h)
+                    yuz_merkezleri.append(((ax1 + ax2) / 2.0, (ay1 + ay2) / 2.0))
+                    yuz_buyuklukleri.append(ax2 - ax1)
+                secilen_yuz_i, kilitli_yuz_merkez, yuz_kayip_kare = G.kilitli_aday_sec(
+                    kilitli_yuz_merkez, yuz_kayip_kare, yuz_merkezleri, yuz_buyuklukleri,
+                    A.KIMLIK_KILIDI_MAKS_SICRAMA_ORANI, A.KIMLIK_KILIDI_KAYIP_KARE_LIMITI,
+                )
+            else:
+                secilen_yuz_i = 0
+
+        if secilen_yuz_i is not None and landmarker_sonuc.face_blendshapes:
+            skorlar = {b.category_name: b.score for b in landmarker_sonuc.face_blendshapes[secilen_yuz_i]}
             sol_kirpma = skorlar.get("eyeBlinkLeft", 0.0)
             sag_kirpma = skorlar.get("eyeBlinkRight", 0.0)
             kirpma_skoru = (sol_kirpma + sag_kirpma) / 2.0
@@ -246,14 +339,37 @@ while True:
 
         if A.AKTIF_POSE and pose_landmarker is not None:
             pose_sonuc = pose_landmarker.detect_for_video(mp_image, kare_zaman_damgasi_ms)
+
+            secilen_govde_i = None
+            if pose_sonuc.pose_landmarks:
+                if A.KIMLIK_KILIDI_AKTIF:
+                    govde_merkezleri = []
+                    govde_buyuklukleri = []
+                    for aday in pose_sonuc.pose_landmarks:
+                        aday_sol_omuz = aday[PoseLandmark.LEFT_SHOULDER]
+                        aday_sag_omuz = aday[PoseLandmark.RIGHT_SHOULDER]
+                        govde_merkezleri.append((
+                            (aday_sol_omuz.x + aday_sag_omuz.x) / 2.0 * w,
+                            (aday_sol_omuz.y + aday_sag_omuz.y) / 2.0 * h,
+                        ))
+                        omuz_genisligi = G.omuz_genisligi_piksel(aday_sol_omuz, aday_sag_omuz, w, h)
+                        govde_buyuklukleri.append(max(omuz_genisligi, 1.0))
+                    secilen_govde_i, kilitli_govde_merkez, govde_kayip_kare = G.kilitli_aday_sec(
+                        kilitli_govde_merkez, govde_kayip_kare, govde_merkezleri, govde_buyuklukleri,
+                        A.KIMLIK_KILIDI_MAKS_SICRAMA_ORANI, A.KIMLIK_KILIDI_KAYIP_KARE_LIMITI,
+                    )
+                else:
+                    secilen_govde_i = 0
+
             if A.GOVDE_CIZIMI_GOSTER:
-                G.govde_ciz(kare, pose_sonuc)
+                _cizilecek = [pose_sonuc.pose_landmarks[secilen_govde_i]] if secilen_govde_i is not None else []
+                G.govde_ciz(kare, types.SimpleNamespace(pose_landmarks=_cizilecek))
 
             # --- Kol sayaci: IKI tetikleyiciden HERHANGI BIRI olusunca (asagidan-
             # yukari GECIS anini yakalayip) sayaci artirir - bkz. dosya basindaki
             # docstring. Normalize y kuculdukce ekranda yukari demektir.
-            if pose_sonuc.pose_landmarks:
-                lm = pose_sonuc.pose_landmarks[0]
+            if secilen_govde_i is not None:
+                lm = pose_sonuc.pose_landmarks[secilen_govde_i]
 
                 sol_omuz = lm[PoseLandmark.LEFT_SHOULDER]
                 sol_dirsek = lm[PoseLandmark.LEFT_ELBOW]

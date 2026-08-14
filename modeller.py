@@ -1,36 +1,17 @@
-"""L2CS-Net (bakis) ve MediaPipe Tasks (yuz/govde/el) modellerinin yuklenmesi.
+"""OpenVINO gaze-estimation-adas-0002 (bakis) ve MediaPipe Tasks (yuz/govde/el)
+modellerinin yuklenmesi.
 
-Agirlik dosyasi (L2CSNet_gaze360.pkl) ELLE indirilip ayarlar.BURASI'na
-konmali (bkz. l2csgaze.py docstring'i). MediaPipe .task dosyalari ise ilk
-calistirmada BURAYA otomatik indirilir (internet gerekir, sadece ilk sefer).
+gaze-estimation-adas-0002.xml/.bin, MediaPipe .task dosyalari gibi ilk
+calistirmada BURAYA (ayarlar.BURASI) otomatik indirilir (internet gerekir,
+sadece ilk sefer). Indirme basarisiz olursa ayarlar.py'deki URL'lerden elle
+indirip ayni klasore koyabilirsin.
 """
 import time
 import urllib.request
 
 import mediapipe as mp
-import torch
-from l2cs import Pipeline
 
 import ayarlar as A
-
-
-def gaze_pipeline_yukle():
-    """L2CS-Net (ResNet50 + RetinaFace) pipeline'ini yukler, gaze nesnesini dondurur."""
-    if not A.AGIRLIK.exists():
-        raise SystemExit(
-            f"Once L2CSNet_gaze360.pkl dosyasini indirip {A.BURASI} icine koy "
-            "(l2csgaze.py docstring'ine bak)."
-        )
-
-    _t0 = time.time()
-    torch.backends.cudnn.benchmark = False
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[zaman] torch/cuda hazir: {time.time() - _t0:.1f}s")
-
-    _t1 = time.time()
-    gaze = Pipeline(weights=str(A.AGIRLIK), arch="ResNet50", device=device)
-    print(f"[zaman] L2CS Pipeline (ResNet50 + RetinaFace) yuklendi: {time.time() - _t1:.1f}s")
-    return gaze
 
 
 def _indir_gerekirse(url, yol, ad):
@@ -39,10 +20,44 @@ def _indir_gerekirse(url, yol, ad):
         urllib.request.urlretrieve(url, yol)
 
 
+def gaze_pipeline_yukle():
+    """OpenVINO gaze-estimation-adas-0002 modelini yukler, calistirilabilir
+    (compiled) modeli dondurur.
+
+    NOT: openvino import'u BILEREK burada, fonksiyon icinde (lazy) -
+    ayarlar.AKTIF_GAZE=False iken bu fonksiyon hic cagrilmiyor, yani bu
+    import'un suresi de HIC harcanmiyor.
+    """
+    import openvino as ov
+
+    _indir_gerekirse(A.GAZE_MODEL_XML_URL, A.GAZE_MODEL_XML, "gaze-estimation-adas-0002.xml")
+    _indir_gerekirse(A.GAZE_MODEL_BIN_URL, A.GAZE_MODEL_BIN, "gaze-estimation-adas-0002.bin")
+
+    if not A.GAZE_MODEL_XML.exists() or not A.GAZE_MODEL_BIN.exists():
+        raise SystemExit(
+            f"gaze-estimation-adas-0002.xml VE .bin dosyalarini indiremedim. "
+            f"Elle indirip {A.BURASI} icine koy (ayarlar.py'deki GAZE_MODEL_*_URL "
+            "degerlerine bak)."
+        )
+
+    _t0 = time.time()
+    core = ov.Core()
+    model = core.read_model(str(A.GAZE_MODEL_XML))
+    compiled = core.compile_model(model, A.GAZE_CIHAZ)
+    print(f"[zaman] OpenVINO gaze modeli ({A.GAZE_CIHAZ}) yuklendi: {time.time() - _t0:.1f}s")
+    return compiled.create_infer_request()
+
+
 def mediapipe_landmarker_lari_yukle():
     """FaceLandmarker'i (her zaman), PoseLandmarker/HandLandmarker'i (ayarlar.
     AKTIF_POSE/AKTIF_EL True ise) yukler. (face, pose, hand) dondurur - pose/
-    hand kapaliysa None olur."""
+    hand kapaliysa None olur.
+
+    FaceLandmarker HEM blendshape (kirpma icin) HEM facial transformation
+    matrix (gaze icin head-pose) HEM 478 nokta landmark (gaze icin goz
+    kirpintisi) uretecek sekilde ayarlanir - L2CS surumunden farkli olarak
+    ayrica bir RetinaFace/yuz tespiti CALISMAZ, tek dedektor hepsine yeter.
+    """
     BaseOptions = mp.tasks.BaseOptions
     FaceLandmarker = mp.tasks.vision.FaceLandmarker
     FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
@@ -58,13 +73,26 @@ def mediapipe_landmarker_lari_yukle():
     if A.AKTIF_EL:
         _indir_gerekirse(A.HAND_TASK_URL, A.HAND_TASK_YOLU, "hand_landmarker.task")
 
+    # KIMLIK_KILIDI_AKTIF ise FaceLandmarker/PoseLandmarker BIRDEN FAZLA aday
+    # dondurur (asagidaki *_ADAY_SAYISI kadar) - bu, gaze_birlesik.py'nin
+    # "kilitli kisiyi digerlerinden ayirt edebilmesi" icin gerekli (bkz.
+    # ayarlar.py). Bu, MediaPipe'in KENDI (hafif) tespitini biraz daha
+    # calistirir ama pahali OpenVINO bakis modeli SADECE secilen tek aday
+    # icin cagrildigindan performansi onemli olcude etkilemez.
+    yuz_aday_sayisi = A.YUZ_ADAY_SAYISI if A.KIMLIK_KILIDI_AKTIF else 1
+    govde_aday_sayisi = A.GOVDE_ADAY_SAYISI if A.KIMLIK_KILIDI_AKTIF else 1
+
     _t3 = time.time()
     face_landmarker = FaceLandmarker.create_from_options(
         FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(A.FACE_TASK_YOLU)),
             running_mode=VisionRunningMode.VIDEO,
-            num_faces=1,
+            num_faces=yuz_aday_sayisi,
             output_face_blendshapes=True,
+            output_facial_transformation_matrixes=True,
+            min_face_detection_confidence=A.YUZ_TESPIT_ESIK,
+            min_face_presence_confidence=A.YUZ_TESPIT_ESIK,
+            min_tracking_confidence=A.YUZ_TESPIT_ESIK,
         )
     )
     print(f"[zaman] FaceLandmarker yuklendi: {time.time() - _t3:.1f}s")
@@ -76,7 +104,7 @@ def mediapipe_landmarker_lari_yukle():
             PoseLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=str(A.POSE_TASK_YOLU)),
                 running_mode=VisionRunningMode.VIDEO,
-                num_poses=1,
+                num_poses=govde_aday_sayisi,
             )
         )
         print(f"[zaman] PoseLandmarker yuklendi: {time.time() - _t4:.1f}s")

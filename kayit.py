@@ -1,5 +1,8 @@
 """Kesit (JPEG) ve video (MP4) kaydi.
 
+Bu dosya gaze backend'inden (L2CS/OpenVINO fark etmez) tamamen bagimsizdir,
+oldugu gibi tasindi.
+
 VIDEO: kareler once bellekte biriktirilir, kayit DURUNCA gercek gecen
 sureden (kare sayisi / gecen saniye) dogru FPS hesaplanip OYLE yazilir -
 boylece video hizli/yavas gorunmez, gercek zamanla ayni surer.
