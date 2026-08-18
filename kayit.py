@@ -24,9 +24,19 @@ A.GOZ_BAKISI_KLASORU.mkdir(parents=True, exist_ok=True)
 
 class VideoKaydedici:
     """Video kaydi durumunu tutan kucuk bir sinif - main dongusu sadece
-    baslat()/kare_ekle()/bitir() cagirir, FPS hesabi ve dosya yazma burada."""
+    baslat()/kare_ekle()/bitir() cagirir, FPS hesabi ve dosya yazma burada.
 
-    def __init__(self):
+    dosya_on_eki (17.08.2026 eklendi): cikti dosyasinin ad ON EKI -
+    VARSAYILAN "video", yani gaze_birlesik.py'nin (ve daha once yazilmis
+    HERHANGI bir kodun) ESKI davranisiyla TAM UYUMLU/degismedi. YENI: artik
+    AYNI ANDA BIRDEN FAZLA VideoKaydedici orneği farkli on eklerle
+    kullanilabilir - orn. gaze_birlesik_uzak.py genis-aci goruntusu icin
+    "video", SABIT BOLGE (zoom) izgarasi icin AYRICA "video_bolgeler" on
+    ekiyle IKINCI bir kayit tutuyor, boylece ikisi birbirinin ustune
+    yazilmiyor/karismiyor."""
+
+    def __init__(self, dosya_on_eki="video"):
+        self.dosya_on_eki = dosya_on_eki
         self.kayit_yapiliyor = False
         self.kareler = []
         self.baslangic_zamani = None
@@ -35,7 +45,7 @@ class VideoKaydedici:
         self.kayit_yapiliyor = True
         self.kareler = []
         self.baslangic_zamani = time.time()
-        print("Video kaydi basladi.")
+        print(f"Video kaydi basladi ({self.dosya_on_eki}).")
 
     def kare_ekle(self, kare):
         """TUM overlay'ler cizildikten SONRA cagrilmali ki dosyada da
@@ -55,7 +65,7 @@ class VideoKaydedici:
         gercek_fps = max(1.0, min(gercek_fps, 30.0))
 
         zaman_etiketi = time.strftime(A.ZAMAN_DAMGASI_FORMATI)
-        video_dosya_adi = A.VIDEO_KLASORU / f"video_{zaman_etiketi}.mp4"
+        video_dosya_adi = A.VIDEO_KLASORU / f"{self.dosya_on_eki}_{zaman_etiketi}.mp4"
         yukseklik, genislik = self.kareler[0].shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         yazici = cv2.VideoWriter(str(video_dosya_adi), fourcc, gercek_fps, (genislik, yukseklik))

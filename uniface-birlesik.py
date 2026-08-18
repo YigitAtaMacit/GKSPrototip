@@ -1,55 +1,48 @@
-"""L2CS-Net + MediaPipe: TEK webcam'de bakis yonu + goz kirpma + el/kol/vucut
-iskeleti - HEPSI AYNI ANDA, AYNI PENCEREDE.
+"""MobileGaze (UniFace) + MediaPipe: TEK webcam'de bakis yonu + goz kirpma +
+el/kol/vucut iskeleti - HEPSI AYNI ANDA, AYNI PENCEREDE.
 
-BU DOSYA, ana OpenVINO surumune (gaze_birlesik.py) ALTERNATIF, YEDEK bir
-bakis motoru - L2CS-Net (RetinaFace+ResNet50, Gaze360 ile egitilmis).
-Neden ayri/yedek: L2CS kendi yuz dedektorunu (RetinaFace) calistirdigi icin
-kadraja ikinci bir kisi/el girdiginde OpenVINO surumune gore daha yavas/
-donmaya yatkin oluyordu (bkz. proje gecmisi) - ama Gaze360 ResNet50'si daha
-"olgun"/test edilmis bir model oldugu icin referans/karsilastirma amacli
-veya OpenVINO modeli yetersiz kaldiginda geri donmek icin burada HAZIR
-tutuluyor. Calistirmak icin: `python l2cs_birlesik.py`.
+BU DOSYA, ana OpenVINO surumune (gaze_birlesik.py) ALTERNATIF bir bakis
+motoru - L2CS-Net'in (l2cs_birlesik.py) yerini alan, UniFace kutuphanesinin
+MobileGaze (bakis regresyonu) modelini kullanir. Kurulum:
+    pip install "uniface[cpu]" opencv-python
+    (NVIDIA GPU icin "uniface[cpu]" yerine "uniface[gpu]")
+Agirliklar (secilen MobileGaze modeli) ilk calistirmada UniFace tarafindan
+KENDI onbellegine otomatik indirilir - elle bir seye gerek yok.
 
-KENDINE YETERLI (self-contained) dosya: bu dosyaya OZEL ayarlar (agirlik
-yolu, esikler, kenar mesafeleri) asagida BU DOSYANIN ICINDE tanimli -
-ayarlar.py'deki OpenVINO'ya ozel degerlerden (BAKIS_ASAGI_SIZINTI_K,
-ESIK_BAKIS_XY, GOZ_KIRPINTI_MARJI vb.) BAGIMSIZDIR, boylece OpenVINO
-tarafinda yapilan ince ayarlar bunu bozmaz/etkilemez. Kamera, kol/kirpma
-esikleri, olay kesiti sureleri, klasor yollari gibi BAKISTAN BAGIMSIZ
-ayarlar yine ORTAK ayarlar.py'den (A.) gelir.
+PERFORMANS NOTU (ONEMLI - versiyon gecmisi): Bu dosya ONCEDEN yuz tespiti
+icin RetinaFace de kullaniyordu (UniFace'in KENDI dedektoru), MediaPipe'in
+FaceLandmarker'inin YANINDA, AYRI bir tam-kare CNN olarak. Bu, her karede
+IKI ayri tam-kare yuz dedektoru + Pose + Hand + MobileGaze = 5 agin ayni
+anda calismasi demekti ve gozle gorulur kasmaya (dusuk FPS) yol aciyordu.
+RetinaFace TAMAMEN KALDIRILDI: artik gaze_birlesik.py'deki (OpenVINO)
+mimariyle AYNI mantik kullaniliyor - zaten HER KARE calismak zorunda olan
+MediaPipe FaceLandmarker'in urettigi 478 noktalik yuz mesh'inden bir
+sinirlayici kutu (bbox) cikarilip DOGRUDAN MobileGaze'e besleniyor, ayri
+bir dedektor calistirilmiyor. Yan fayda: WIDER FACE veri setinin (RetinaFace
+agirliklarinin egitildigi, ticari kullanima kapali CC-BY-NC-ND lisansli
+veri seti) lisans kisitlamasi bu dosya icin artik gecerli DEGIL - sadece
+asagidaki MobileGaze/Gaze360 kisitlamasi kaldi (L2CS ile ayni durum).
 
-ONCE agirlik dosyasi gerekli: L2CSNet_gaze360.pkl - GitHub'daki L2CS-Net
-sayfasindan (https://github.com/Ahmednull/L2CS-Net) indirip BU klasore koy.
-Ayrica `pip install torch l2cs` gerekir (OpenVINO surumunden FARKLI
-bagimliliklar - ikisini ayni anda kurman gerekebilir). MediaPipe model
-dosyalari (face_landmarker.task, pose_landmarker_lite.task,
-hand_landmarker.task) ilk calistirmada otomatik indirilir (gaze_birlesik.py
-ile ORTAK, zaten inmisse tekrar inmez).
+LISANS NOTU (ONEMLI): UniFace'in KODU (MobileGaze sarmalayicisi) MIT
+lisanslidir - bu kisim tamamen serbest. AMA MobileGaze'in ONCEDEN EGITILMIS
+AGIRLIKLARI Gaze360 veri setiyle egitilmis (resmi belgelerindeki MAE tablosu
+"Gaze360 test set" uzerinden veriliyor) - yani L2CS'teki AYNI kisitlama
+burada da gecerli: Gaze360 lisansi "veri setinde egitilmis modeller dahil
+hicbir turevin ticari kullanilamayacagini" acikca soyluyor. Ticari kullanim
+icin hala gaze_birlesik.py'deki OpenVINO modeli (Apache 2.0) tercih edilmeli.
 
-PERFORMANS UYARISI: Tek karede DORT model (RetinaFace+L2CS, FaceLandmarker,
-PoseLandmarker, HandLandmarker) calisiyor, bu yuzden FPS bunlari ayri ayri
-calistirmaktan dusuk olabilir; kadraja ikinci bir yuz girerse (RetinaFace
-onu da islemeye calisir) yavaslama/donma gorulebilir. Yavas gelirse
-ayarlar.py'deki AKTIF_POSE / AKTIF_EL bayraklarini False yap.
+KENDINE YETERLI (self-contained) dosya: UniFace'e OZEL ayarlar (mimari
+secimi, esikler, kenar mesafeleri) asagida BU DOSYANIN ICINDE tanimli -
+ayarlar.py'deki OpenVINO'ya ozel degerlerden BAGIMSIZDIR. Kamera, kol/kirpma
+esikleri, olay kesiti sureleri, kimlik kilidi genel ayarlari, klasor
+yollari gibi BAKISTAN BAGIMSIZ ayarlar yine ORTAK ayarlar.py'den (A.) gelir.
 
-SOL KOL / SAG KOL sayaclari - IKI AYRI tetikleyiciden HERHANGI BIRI olusunca
-artar (transitleri, yani "az once yoktu simdi var" anini yakalar):
-  1) Kol kalkik: bilek, omuz hizasinin USTUNE cikinca.
-  2) Dirsek kivrik + el omuz hizasinda: bilek ile omuz YAKLASIK ayni
-     yukseklikteyken dirsek acisi kucukse ("biceps curl" hareketi).
-AKTIF_POSE=False ise bu sayaclar calismaz (PoseLandmarker gerekli).
-
-OLAY KESITI: SOL KOL / SAG KOL / KIRPMA / BAKIS (SOL-SAG-YUKARI-ASAGI) sayaclarindan
-biri her artinca (ilgili olayin ANI), o andan ONCEKI ayarlar.OLAY_ONCE_SANIYE
-(varsayilan 2sn) VE SONRAKI ayarlar.OLAY_SONRA_SANIYE (varsayilan 2sn) -
-TOPLAM ~4 saniyelik bir MP4 otomatik olarak kaydedilir (kayit.
-OlayKlibiYoneticisi). Her kategorinin KENDI klasoru ve KENDI (bagimsiz)
-yoneticisi var, "videolar/" altinda:
-  sol_kol/     - SOL KOL sayaci artinca
-  sag_kol/     - SAG KOL sayaci artinca
-  goz_kirpma/  - KIRPMA sayaci artinca
-  goz_bakisi/  - SOL/SAG/YUKARI/ASAGI bakis yonu sayaclarindan biri artinca
-Bu, 'v' tusuyla acilan MANUEL kayittan BAGIMSIZ, her zaman arka planda calisir.
+KIMLIK KILIDI: iki AYRI kilit var - yuz (MediaPipe FaceLandmarker uzerinden,
+HEM bakis HEM kirpma icin ORTAK kullanilir - artik RetinaFace'in kendi
+kilidi yok, cunku RetinaFace yok) ve govde (kol icin). Kadraja ikinci bir
+kisi girse bile ilk bulunan kisi takip edilmeye devam eder, pahali olan
+MobileGaze cikarimi SADECE kilitli yuz icin cagrilir (bkz. gorsellik.
+kilitli_aday_sec).
 
 Kontroller:
   c = kalibre et (kameraya duz bakarken bas, bakis sapmasini sifirlar)
@@ -63,7 +56,6 @@ Kontroller:
   q = cikis
 """
 import time
-
 import types
 
 import cv2
@@ -75,50 +67,93 @@ import gorsellik as G
 import kayit as K
 import modeller as M
 
-# --- Bu dosyaya OZEL L2CS ayarlari (ortak ayarlar.py'den BAGIMSIZ) --------
-AKTIF_GAZE_L2CS = True  # False yaparsan L2CS hic yuklenmez, sadece kirpma/kol/govde calisir
+# --- Bu dosyaya OZEL UniFace/MobileGaze ayarlari (ortak ayarlar.py'den
+# BAGIMSIZ) ----------------------------------------------------------------
+AKTIF_GAZE_UNIFACE = True  # False yaparsan MobileGaze hic yuklenmez
 
-L2CS_AGIRLIK = A.BURASI / "L2CSNet_gaze360.pkl"
-L2CS_ESIK_ACI = 0.08              # radyan, ~4.5 derece - duz bakis "olu bolgesi"
-L2CS_MAKS_ACI_SICRAMA = 0.35      # radyan, ~20 derece - karede izin verilen maks pitch/yaw degisimi
-L2CS_KENAR_MESAFE_YATAY = 0.50    # SOL/SAG icin merkezden mesafe (yuz genisligi carpani)
-L2CS_KENAR_MESAFE_UST = 0.20      # YUKARI icin merkezden mesafe
-L2CS_KENAR_MESAFE_ALT = 0.40      # ASAGI icin merkezden mesafe
+# MobileGaze mimarisi - uniface.constants.GazeWeights uyesi adi (string).
+# Secenekler: RESNET18, RESNET34 (varsayilan/onerilen), RESNET50,
+# MOBILENETV2, MOBILEONE_S0 (en hafif). Daha kucuk = daha hizli ama daha
+# az dogru (bkz. dosya basindaki lisans notu - hepsi Gaze360 ile egitilmis).
+UNIFACE_GAZE_MIMARISI = "RESNET34"
+
+# MobileGaze ONNX Runtime uzerinde calisir ve 'providers' parametresiyle
+# hangi donanimda calisacagini SECEBILIR (bkz. UniFace belgeleri: Execution
+# Providers). Listedeki ILK calisan saglayici kullanilir, geri kalanlar
+# YEDEK/fallback'tir - CUDA kurulu/uyumlu degilse otomatik CPU'ya duser,
+# hata VERMEZ. GPU icin gereken: NVIDIA GPU + surucu + CUDA 11.x/12.x +
+# cuDNN 8.x + "pip install uniface[gpu]" (onnxruntime yerine
+# onnxruntime-gpu kurar). Sadece CPU istersen tek elemanli
+# ["CPUExecutionProvider"] yap.
+# NOT: CUDA denendi ama bu makinede CUDA 13.x/cuDNN 9.x eksik oldugu icin
+# calismiyordu, otomatik CPU'ya duessu (performansi ETKILEMEDI, sadece
+# baslangicta kirmizi hata satirlari yaziyordu). RetinaFace'in kaldirilmasi
+# zaten asil kasma sorununu cozdugu ve CPU'da performans yeterli oldugu icin
+# CUDA denemesi tamamen KAPATILDI - baslangic artik sessiz. CUDA kurup
+# denemek istersen: ["CUDAExecutionProvider", "CPUExecutionProvider"] yap.
+UNIFACE_ONNX_SAGLAYICILAR = ["CPUExecutionProvider"]
+
+UNIFACE_ESIK_ACI = 0.08              # radyan, ~4.5 derece - duz bakis "olu bolgesi"
+UNIFACE_MAKS_ACI_SICRAMA = 0.35      # radyan, ~20 derece - karede izin verilen maks pitch/yaw degisimi
+UNIFACE_KENAR_MESAFE_YATAY = 0.50    # SOL/SAG icin merkezden mesafe (yuz genisligi carpani)
+UNIFACE_KENAR_MESAFE_UST = 0.20      # YUKARI icin merkezden mesafe
+UNIFACE_KENAR_MESAFE_ALT = 0.40      # ASAGI icin merkezden mesafe
+
+# MediaPipe'in 478 noktalik mesh'inden cikan bbox, RetinaFace'in urettigi
+# kutudan biraz daha DAR olabilir (RetinaFace tipik olarak biraz pay
+# birakir) - MobileGaze'in egitim sirasinda gordugu kirpintiya daha yakin
+# olmasi icin kutuyu bu oranda buyutuyoruz (1.0 = pay yok).
+UNIFACE_YUZ_KIRPINTI_MARJI = 1.2
 
 
-def _l2cs_pipeline_yukle():
-    """L2CS-Net (ResNet50 + RetinaFace) pipeline'ini yukler.
+def _mobilegaze_yukle():
+    """MobileGaze (bakis regresyonu) yukler. Yuz tespiti ARTIK RetinaFace ile
+    degil, zaten her karede calisan MediaPipe FaceLandmarker'in bbox'iyla
+    yapiliyor (bkz. dosya basindaki PERFORMANS NOTU) - bu yuzden burada
+    SADECE MobileGaze var, ayri bir dedektor yuklenmiyor.
 
-    NOT: torch/l2cs import'lari BILEREK burada, fonksiyon icinde (lazy) -
-    AKTIF_GAZE_L2CS=False iken bu fonksiyon hic cagrilmiyor, yani bu agir
-    import'larin suresi de HIC harcanmiyor.
+    NOT: uniface import'u BILEREK burada, fonksiyon icinde (lazy) -
+    AKTIF_GAZE_UNIFACE=False iken bu fonksiyon hic cagrilmiyor, yani bu
+    import'un (ve ilk calistirmada agirlik indirmesinin) suresi de HIC
+    harcanmiyor. Donus: gaze_estimator.
     """
-    import torch
-    from l2cs import Pipeline
-
-    if not L2CS_AGIRLIK.exists():
-        raise SystemExit(
-            f"Once L2CSNet_gaze360.pkl dosyasini indirip {A.BURASI} icine koy "
-            "(l2cs_birlesik.py docstring'ine bak)."
-        )
-
-    _t0 = time.time()
-    torch.backends.cudnn.benchmark = False
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[zaman] torch/cuda hazir: {time.time() - _t0:.1f}s")
+    from uniface.constants import GazeWeights
+    from uniface.gaze import MobileGaze
 
     _t1 = time.time()
-    gaze = Pipeline(weights=str(L2CS_AGIRLIK), arch="ResNet50", device=device)
-    print(f"[zaman] L2CS Pipeline (ResNet50 + RetinaFace) yuklendi: {time.time() - _t1:.1f}s")
-    return gaze
+    model_adi = getattr(GazeWeights, UNIFACE_GAZE_MIMARISI)
+    gaze_estimator = MobileGaze(model_name=model_adi, providers=UNIFACE_ONNX_SAGLAYICILAR)
+    print(f"[zaman] MobileGaze ({UNIFACE_GAZE_MIMARISI}) yuklendi: {time.time() - _t1:.1f}s "
+          f"- istenen saglayicilar: {UNIFACE_ONNX_SAGLAYICILAR}")
+
+    try:
+        import onnxruntime as ort
+        print(f"[bilgi] ONNX Runtime'da GERCEKTEN kurulu/gorunen saglayicilar: {ort.get_available_providers()}")
+    except Exception:
+        pass
+
+    return gaze_estimator
+
+
+def _bbox_marjli(x1, y1, x2, y2, marj, w, h):
+    """Bir bbox'u kendi merkezi etrafinda 'marj' orani kadar buyutur, goruntu
+    sinirlarina kirpar."""
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    yeni_genislik = (x2 - x1) * marj
+    yeni_yukseklik = (y2 - y1) * marj
+    nx1 = max(0, int(cx - yeni_genislik / 2))
+    ny1 = max(0, int(cy - yeni_yukseklik / 2))
+    nx2 = min(w, int(cx + yeni_genislik / 2))
+    ny2 = min(h, int(cy + yeni_yukseklik / 2))
+    return nx1, ny1, nx2, ny2
 
 
 # --- Modelleri yukle ----------------------------------------------------
-if AKTIF_GAZE_L2CS:
-    gaze = _l2cs_pipeline_yukle()
+if AKTIF_GAZE_UNIFACE:
+    gaze_estimator = _mobilegaze_yukle()
 else:
-    gaze = None
-    print("[bilgi] AKTIF_GAZE_L2CS=False - L2CS-Net YUKLENMEDI. Bakis yonu (SOL/SAG/YUKARI/ASAGI) sayaclari ve yuz oku calismayacak.")
+    gaze_estimator = None
+    print("[bilgi] AKTIF_GAZE_UNIFACE=False - MobileGaze YUKLENMEDI. Bakis yonu (SOL/SAG/YUKARI/ASAGI) sayaclari ve yuz oku calismayacak.")
 
 _t2 = time.time()
 cap = cv2.VideoCapture(A.KAMERA_INDEKSI)
@@ -193,25 +228,18 @@ onceki_sag_bacak_hareketli = False
 sol_bacak_cikis_sayaci = 0  # debounce - bkz. gorsellik.hareket_algila
 sag_bacak_cikis_sayaci = 0
 
-# Kimlik kilidi durumu - SADECE MediaPipe tarafini (kirpma + kol) kapsar.
-# L2CS'in KENDI bakis tespiti (RetinaFace, asagidaki gaze.step() cagrisi)
-# BAGIMSIZ bir dedektor oldugu icin bu kilidin disinda kalir - kadrajda
-# ikinci bir kisi varsa L2CS'in bakis kismi hala "ilk bulunan yuz"
-# mantigiyla calisir (bkz. ayarlar.py KIMLIK_KILIDI_AKTIF notu).
+# Kimlik kilidi durumu - IKI kilit: yuz (bakis + kirpma ORTAK - artik ikisi
+# de AYNI MediaPipe FaceLandmarker sonucunu kullaniyor) ve govde (kol).
 kilitli_yuz_merkez = None
 yuz_kayip_kare = 0
 kilitli_govde_merkez = None
 govde_kayip_kare = 0
 
-# TAKIP EDEN dijital yakinlastirma icin durum - kilitli MediaPipe yuzunun SON
-# bilinen konumu, HAM (kirpilmamis) kamera karesinin koordinatlarinda (bkz.
+# TAKIP EDEN dijital yakinlastirma icin durum - kilitli yuzun SON bilinen
+# konumu, HAM (kirpilmamis) kamera karesinin koordinatlarinda (bkz.
 # gorsellik.takip_yakinlastir / raw_konuma_cevir, ayarlar.
-# DIJITAL_YAKINLASTIRMA). None = henuz kilit yok / kilit tamamen birakildi ->
-# o kare TAM ORTADAN (genis/arama modunda) kirpilir. NOT: L2CS'in KENDI
-# (RetinaFace tabanli) bakis tespiti bu takibin DISINDA - onun kimlik
-# kilidine dahil olmadigi gibi (bkz. yukarideki not) yakinlastirma takibine
-# de dahil degil, sadece kirpma/kol icin kullanilan MediaPipe yuzu takip
-# edilir.
+# DIJITAL_YAKINLASTIRMA). None = henuz kilit yok / kilit tamamen birakildi
+# -> o kare TAM ORTADAN (genis/arama modunda) kirpilir.
 takip_merkezi = None
 
 # Yuz henuz bulunmadan once (ilk kareler) cizilmesin diye baslangic degerleri.
@@ -299,79 +327,9 @@ while True:
     h, w = kare.shape[:2]
     yuz_bulundu_bu_kare = False
 
-    # --- L2CS-Net: bakis yonu ------------------------------------------------
-    if AKTIF_GAZE_L2CS and gaze is not None:
-        try:
-            sonuc = gaze.step(kare)
-            if len(sonuc.pitch) > 0:
-                son_pitch_ham = float(sonuc.pitch[0])
-                son_yaw_ham = float(sonuc.yaw[0])
-                yuz_bulundu_bu_kare = True
-
-                pitch = son_pitch_ham - BIAS_PITCH
-                yaw = son_yaw_ham - BIAS_YAW
-
-                bbox = sonuc.bboxes[0]
-                x_min, y_min, x_max, y_max = [int(v) for v in bbox]
-                if A.YUZ_CIZIMI_GOSTER:
-                    cv2.rectangle(kare, (x_min, y_min), (x_max, y_max), (0, 255, 0), 1)
-
-                merkez_x = (bbox[0] + bbox[2]) / 2.0
-                merkez_y = (bbox[1] + bbox[3]) / 2.0
-                uzunluk = bbox[2] - bbox[0]
-
-                # Yumusatma: ozellikle yuz kucukken (uzaktayken) pitch/yaw ve bbox
-                # tahmini daha gurultulu oluyor - HAM degerler yerine yumusatilmis
-                # (EMA) degerleri kullaniyoruz ki ok/kutu titremesin. pitch/yaw
-                # icin ayrica L2CS_MAKS_ACI_SICRAMA ile tek karelik "cilginca"
-                # outlier sicramalar da kirpiliyor (bkz. gorsellik.yumusat).
-                pitch = yumusak_pitch = G.yumusat(yumusak_pitch, pitch, L2CS_MAKS_ACI_SICRAMA)
-                yaw = yumusak_yaw = G.yumusat(yumusak_yaw, yaw, L2CS_MAKS_ACI_SICRAMA)
-                merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
-                merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
-                uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
-
-                # Kenar "kutusu" YUZE GORE - yuz kutusunun genisligiyle olceklenir
-                # ve merkezi her kare yuzun merkezine tasinir, yani sen hareket
-                # ettikce kutu da SENINLE birlikte kayar.
-                cizgi_sol_x = int(merkez_x - uzunluk * L2CS_KENAR_MESAFE_YATAY)
-                cizgi_sag_x = int(merkez_x + uzunluk * L2CS_KENAR_MESAFE_YATAY)
-                cizgi_ust_y = int(merkez_y - uzunluk * L2CS_KENAR_MESAFE_UST)
-                cizgi_alt_y = int(merkez_y + uzunluk * L2CS_KENAR_MESAFE_ALT)
-
-                dx = -uzunluk * np.sin(pitch) * np.cos(yaw)
-                dy = -uzunluk * np.sin(yaw)
-                ucur_x = merkez_x + dx
-                ucur_y = merkez_y + dy
-
-                duz_bakiyor = abs(pitch) < L2CS_ESIK_ACI and abs(yaw) < L2CS_ESIK_ACI
-
-                if A.YUZ_CIZIMI_GOSTER and not duz_bakiyor:
-                    cv2.arrowedLine(
-                        kare, (int(merkez_x), int(merkez_y)), (int(ucur_x), int(ucur_y)),
-                        (0, 0, 255), 2, cv2.LINE_AA, tipLength=0.18,
-                    )
-
-                yatay = "sol" if ucur_x > cizgi_sag_x else "sag" if ucur_x < cizgi_sol_x else "merkez"
-                dikey = "asagi" if ucur_y > cizgi_alt_y else "yukari" if ucur_y < cizgi_ust_y else "merkez"
-
-                if yatay != "merkez" and yatay != onceki_yatay:
-                    if sayaclar_aktif:
-                        sayaclar[yatay] += 1
-                        if A.BAKIS_OLAY_KESITI_AKTIF:
-                            bakis_olay_kaydedici.olay_tetikle(yatay)
-                onceki_yatay = yatay
-
-                if dikey != "merkez" and dikey != onceki_dikey:
-                    if sayaclar_aktif:
-                        sayaclar[dikey] += 1
-                        if A.BAKIS_OLAY_KESITI_AKTIF:
-                            bakis_olay_kaydedici.olay_tetikle(dikey)
-                onceki_dikey = dikey
-        except Exception:
-            pass
-
-    # --- MediaPipe: kirpma + govde + eller (AYNI kare, AYNI mp_image) -------
+    # --- MediaPipe: bakis + kirpma + govde + eller (AYNI kare, AYNI mp_image,
+    # TEK yuz dedektoru - RetinaFace KALDIRILDI, bkz. dosya basindaki
+    # PERFORMANS NOTU) --------------------------------------------------
     try:
         rgb = cv2.cvtColor(kare, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
@@ -379,9 +337,8 @@ while True:
 
         landmarker_sonuc = face_landmarker.detect_for_video(mp_image, kare_zaman_damgasi_ms)
 
-        # --- Kimlik kilidi: adaylar arasindan "kilitli kisiyi" sec (SADECE
-        # kirpma/MediaPipe tarafi icin - L2CS'in kendi bakis tespiti bunun
-        # disinda, bkz. dosya basindaki durum degiskeni notu).
+        # --- Kimlik kilidi: adaylar arasindan "kilitli kisiyi" sec. Bu
+        # secim ARTIK HEM bakis HEM kirpma icin ORTAK kullaniliyor.
         secilen_yuz_i = None
         if landmarker_sonuc.face_landmarks:
             if A.KIMLIK_KILIDI_AKTIF:
@@ -413,6 +370,78 @@ while True:
         else:
             takip_merkezi = None
 
+        # --- Bakis (MobileGaze) - secilen yuzun landmark bbox'indan kirpilir,
+        # ayri bir dedektor CALISTIRILMIYOR. ---------------------------------
+        if AKTIF_GAZE_UNIFACE and gaze_estimator is not None and secilen_yuz_i is not None:
+            aday = landmarker_sonuc.face_landmarks[secilen_yuz_i]
+            fx1, fy1, fx2, fy2 = G.yuz_bbox_hesapla(aday, w, h)
+            x1, y1, x2, y2 = _bbox_marjli(fx1, fy1, fx2, fy2, UNIFACE_YUZ_KIRPINTI_MARJI, w, h)
+            yuz_kirpintisi = kare[y1:y2, x1:x2]
+
+            if yuz_kirpintisi.size > 0:
+                yuz_bulundu_bu_kare = True
+
+                sonuc = gaze_estimator.estimate(yuz_kirpintisi)
+                son_pitch_ham = float(sonuc.pitch)
+                son_yaw_ham = float(sonuc.yaw)
+
+                pitch = son_pitch_ham - BIAS_PITCH
+                yaw = son_yaw_ham - BIAS_YAW
+
+                if A.YUZ_CIZIMI_GOSTER:
+                    cv2.rectangle(kare, (x1, y1), (x2, y2), (0, 255, 0), 1)
+
+                merkez_x = (x1 + x2) / 2.0
+                merkez_y = (y1 + y2) / 2.0
+                uzunluk = x2 - x1
+
+                # Yumusatma: bkz. gorsellik.yumusat - ani "sicrama" (outlier)
+                # degerlerin oku bir anda yanlis yone firlatmasini engeller.
+                pitch = yumusak_pitch = G.yumusat(yumusak_pitch, pitch, UNIFACE_MAKS_ACI_SICRAMA)
+                yaw = yumusak_yaw = G.yumusat(yumusak_yaw, yaw, UNIFACE_MAKS_ACI_SICRAMA)
+                merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
+                merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
+                uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
+
+                cizgi_sol_x = int(merkez_x - uzunluk * UNIFACE_KENAR_MESAFE_YATAY)
+                cizgi_sag_x = int(merkez_x + uzunluk * UNIFACE_KENAR_MESAFE_YATAY)
+                cizgi_ust_y = int(merkez_y - uzunluk * UNIFACE_KENAR_MESAFE_UST)
+                cizgi_alt_y = int(merkez_y + uzunluk * UNIFACE_KENAR_MESAFE_ALT)
+
+                # UniFace'in KENDI belgelenen formulu (pitch + = yukari,
+                # yaw + = saga - L2CS'inkinden FARKLI/duz bir eksen
+                # kuralı, ekseni "ters atma" gerekmiyor).
+                dx = -uzunluk * np.sin(yaw) * np.cos(pitch)
+                dy = -uzunluk * np.sin(pitch)
+                ucur_x = merkez_x + dx
+                ucur_y = merkez_y + dy
+
+                duz_bakiyor = abs(pitch) < UNIFACE_ESIK_ACI and abs(yaw) < UNIFACE_ESIK_ACI
+
+                if A.YUZ_CIZIMI_GOSTER and not duz_bakiyor:
+                    cv2.arrowedLine(
+                        kare, (int(merkez_x), int(merkez_y)), (int(ucur_x), int(ucur_y)),
+                        (0, 0, 255), 2, cv2.LINE_AA, tipLength=0.18,
+                    )
+
+                yatay = "sol" if ucur_x > cizgi_sag_x else "sag" if ucur_x < cizgi_sol_x else "merkez"
+                dikey = "asagi" if ucur_y > cizgi_alt_y else "yukari" if ucur_y < cizgi_ust_y else "merkez"
+
+                if yatay != "merkez" and yatay != onceki_yatay:
+                    if sayaclar_aktif:
+                        sayaclar[yatay] += 1
+                        if A.BAKIS_OLAY_KESITI_AKTIF:
+                            bakis_olay_kaydedici.olay_tetikle(yatay)
+                onceki_yatay = yatay
+
+                if dikey != "merkez" and dikey != onceki_dikey:
+                    if sayaclar_aktif:
+                        sayaclar[dikey] += 1
+                        if A.BAKIS_OLAY_KESITI_AKTIF:
+                            bakis_olay_kaydedici.olay_tetikle(dikey)
+                onceki_dikey = dikey
+
+        # --- Kirpma - AYNI secilen_yuz_i, blendshape skorlarindan. ----------
         if secilen_yuz_i is not None and landmarker_sonuc.face_blendshapes:
             skorlar = {b.category_name: b.score for b in landmarker_sonuc.face_blendshapes[secilen_yuz_i]}
             sol_kirpma = skorlar.get("eyeBlinkLeft", 0.0)
@@ -482,8 +511,6 @@ while True:
                             if A.KOL_OLAY_KESITI_AKTIF:
                                 sol_kol_olay_kaydedici.olay_tetikle("sol_kol")
                     onceki_sol_kol_aktif = sol_kol_aktif
-                # else: bilek/omuz kadraj disinda/belirsiz - guvenilmez tahmini
-                # SAYMA, onceki durumu da DEGISTIRME (gurultuden sayma).
 
                 sag_omuz = lm[PoseLandmark.RIGHT_SHOULDER]
                 sag_dirsek = lm[PoseLandmark.RIGHT_ELBOW]
@@ -533,8 +560,6 @@ while True:
                         print("[GCS] UYARI: Bu SEZGISEL bir ON-ONERI, kesin tibbi olcum degil - klinisyen kendi gozlemiyle dogrulamali.")
                         gcs_sonuc_gosterim_bitis = time.time() + A.GCS_SONUC_GOSTERIM_SANIYE
                         gcs_test_aktif = False
-                # else: bilek/omuz kadraj disinda/belirsiz - guvenilmez tahmini
-                # SAYMA, onceki durumu da DEGISTIRME (gurultuden sayma).
 
                 # --- Bacak/ayak hareketi: ayak bilegi konumundaki ANI
                 # degisim (herhangi bir YONE) - bkz. gorsellik.hareket_algila
@@ -586,8 +611,7 @@ while True:
         pass
 
     # --- Yuze bagli kenar kutusu + sayaclar (en ustte, en sonda ciziliyor ki
-    # okunsun). Kutu SADECE bu karede yuz bulunduysa cizilir (yuz_bulundu_bu_
-    # kare) - bulunamazsa eski konumda "hayalet" kutu kalmasin diye gizlenir.
+    # okunsun). Kutu SADECE bu karede yuz bulunduysa cizilir.
     renk = (255, 255, 0)
     if yuz_bulundu_bu_kare and cizgi_sol_x is not None:
         cv2.rectangle(kare, (cizgi_sol_x, cizgi_ust_y), (cizgi_sag_x, cizgi_alt_y), renk, 1)
@@ -630,8 +654,7 @@ while True:
 
     # Video kaydi - TUM overlay'ler cizildikten SONRA bellege ekleniyor.
     kaydedici.kare_ekle(kare)
-    # Olay kesitleri - HER karede, SADECE aktif olan kategoriler icin cagrilir
-    # (onbellegi surekli guncel tutar, olay olsun olmasin).
+    # Olay kesitleri - HER karede, SADECE aktif olan kategoriler icin cagrilir.
     if A.KOL_OLAY_KESITI_AKTIF:
         sol_kol_olay_kaydedici.kare_ekle(kare)
         sag_kol_olay_kaydedici.kare_ekle(kare)
@@ -644,10 +667,10 @@ while True:
         bakis_olay_kaydedici.kare_ekle(kare)
 
     if ilk_kare_mi:
-        print(f"[zaman] ilk kare islendi (4 modelin ilk 'isinmasi' dahil): {time.time() - _t6:.1f}s")
+        print(f"[zaman] ilk kare islendi (modellerin ilk 'isinmasi' dahil): {time.time() - _t6:.1f}s")
         ilk_kare_mi = False
 
-    cv2.imshow("L2CS + MediaPipe: bakis + kirpma + govde + eller (q = cik)", kare)
+    cv2.imshow("UniFace (MobileGaze) + MediaPipe: bakis + kirpma + govde + eller (q = cik)", kare)
     tus = cv2.waitKey(1) & 0xFF
     if tus == ord("q"):
         if kaydedici.kayit_yapiliyor:
