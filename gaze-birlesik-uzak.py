@@ -21,14 +21,22 @@ noktalarini isaretleyip kaydet). Hicbir bolge tanimlanmadiysa bu script
 YINE DE calisir ama sadece genis-aci (kol/bacak) gorunumunu gosterir -
 bolunmus ekran penceresi acilmaz.
 
-Kontroller (gaze_birlesik.py ile BUYUK OLCUDE AYNI - 'z' YOK, cunku zoom
-noktalari SABIT/elle belirlendi, otomatik takip eden yakinlastirma yok):
-  c = kalibre et (yuz bolgesi TANIMLIYSA VE o bolgede yuz GORUNUYORSA,
-      kameraya duz bakarken bas - bakis sapmasini sifirlar)
+Kontroller (gaze_birlesik.py ile BUYUK OLCUDE AYNI):
+  c = kalibre et (yuz bolgesi TANIMLIYSA VE o bolgede yuz GORUNUYORSA -ya
+      da ANA KAMERA modundaysa VE genis karede yuz GORUNUYORSA-, kameraya
+      duz bakarken bas - bakis sapmasini sifirlar)
   r = kesit al (genis-aci + bolunmus-ekran kareleri, "kesitler/" klasorune JPEG)
   v = video kaydi ac/kapat (genis-aci VE bolgeler izgarasi BIRLIKTE - "videolar/"
       klasorune "video_..." ve "video_bolgeler_..." olarak IKI AYRI MP4)
   h = sayaclari ac/kapat (BASLANGICTA KAPALI)
+  z = ANA KAMERA modu ac/kapat (BASLANGICTA KAPALI - yani sabit bolge/zoom
+      modu varsayilan). ACIKKEN: nokta_sec.py ile isaretlenmis SABIT
+      bolgeler/zoom TAMAMEN DEVRE DISI kalir, YUZ (kirpma/bakis) VE EL
+      (parmak) sayaclari DOGRUDAN genis-aci/ana kameradan, gaze_birlesik.py
+      ile AYNI yontemle (bilege GORE olcekli parmak takibi, govde
+      bilekleriyle sol/sag el eslestirme) beslenir - nokta_sec.py hic
+      calistirilmamis olsa BILE bu modda parmak/yuz sayaclari calisir.
+      Istediginiz an tekrar 'z' ile SABIT BOLGE/zoom moduna donebilirsiniz.
   g = GCS motor tepki testi (M2-M5, SEZGISEL - bkz. gorsellik.
       gcs_kol_tepkisini_sinifla docstring'i, KESIN tibbi olcum DEGIL)
   q = cikis
@@ -39,6 +47,7 @@ VERI KAYNAGI degisti: yuz/el sayaclari artik genis kareden DEGIL, ilgili
 SABIT bolge panelinden besleniyor (bolge tanimlanmadiysa o sayaclar hic
 artmaz, 0'da kalir - genis-aci gorunumde bunun NEDENI ekranda yazar).
 """
+import collections
 import math
 import time
 import types
@@ -76,14 +85,33 @@ if "el" in bolge_turleri:
         _bolge_turleri_yuklenecek.add("el")
     else:
         print("[bilgi] ayarlar.AKTIF_EL=False - el bolgeleri tanimli olsa da PARMAK sayaclari calismayacak.")
-bolge_face, bolge_hand = M.bolge_landmarklarini_yukle(_bolge_turleri_yuklenecek)
+bolge_face, bolge_hand = M.bolge_landmarklarini_yukle(
+    _bolge_turleri_yuklenecek,
+    el_bolge_adlari=[ad for ad, b in bolgeler.items() if b["tur"] == "el"],
+)
+
+# --- ANA KAMERA modu ('z' tusu) icin AYRI/bagimsiz landmarker cifti -------
+# SABIT BOLGE panellerinden (yukaridaki bolge_face/bolge_hand) TAMAMEN
+# BAGIMSIZ - bolgeler hic tanimli olmasa (nokta_sec.py hic calistirilmamis
+# olsa) BILE yuklenir, cunku bu modun butun amaci nokta_sec.py'ye ihtiyac
+# DUYMADAN dogrudan genis-aci/ana kameradan yuz+el tespiti yapabilmek (bkz.
+# yukaridaki dosya docstring'i, "z" kontrolu).
+_ana_kamera_turleri = {"yuz"}
+if A.AKTIF_EL:
+    _ana_kamera_turleri.add("el")
+ana_face, ana_hand = M.bolge_landmarklarini_yukle(_ana_kamera_turleri, etiket="ana kamera, zoom kapali")
 
 gaze = None
-if "yuz" in bolge_turleri and A.AKTIF_GAZE:
+if A.AKTIF_GAZE:
     gaze = M.gaze_pipeline_yukle()
-elif "yuz" in bolge_turleri and not A.AKTIF_GAZE:
-    print("[bilgi] ayarlar.AKTIF_GAZE=False - yuz bolgesinde KIRPMA sayilir ama bakis yonu "
-          "(SOL/SAG/YUKARI/ASAGI) sayaclari ve goz oku calismayacak.")
+else:
+    print("[bilgi] ayarlar.AKTIF_GAZE=False - KIRPMA (bolgede VE ana kamera modunda) sayilir ama "
+          "bakis yonu (SOL/SAG/YUKARI/ASAGI) sayaclari ve goz oku calismayacak.")
+# NOT (19.08.2026, 'z' ana kamera modu eklendi): eskiden gaze SADECE "yuz"
+# bolgesi TANIMLIYSA yuklenirdi (bolge yoksa nasil olsa kullanilamiyordu).
+# ARTIK ana_face/ana_hand HER ZAMAN yuklendigi (bkz. yukarida) icin bolge
+# hic tanimli olmasa BILE 'z' ile ana kamera modunda bakis sayaclari
+# calisabilmeli - bu yuzden yukleme SADECE A.AKTIF_GAZE'e bagli.
 
 pose_landmarker = M.pose_landmarker_yukle() if A.AKTIF_POSE else None
 if not A.AKTIF_POSE:
@@ -133,6 +161,7 @@ sayaclar = {
     "sol_parmak": 0, "sag_parmak": 0,
 }
 sayaclar_aktif = False
+ana_kamera_modu = False  # 'z' tusu - True iken SABIT BOLGE/zoom sistemi devre disi, yuz+el DOGRUDAN genis-aci/ana kameradan okunur
 onceki_yatay = "merkez"
 onceki_dikey = "merkez"
 onceki_sol_kol_aktif = False
@@ -185,17 +214,47 @@ yuz_bulundu_bu_kare = False  # 'c' kalibrasyonu icin - HER karede yeniden hesapl
 # KENDI BAGIMSIZ 5-parmak durumu (bkz. gaze_birlesik.py parmak_durum ile
 # AYNI yapi - burada dict-of-dict yerine ad ile anahtarlanan bir sozluk).
 bolge_parmak_durum = {
-    ad: [dict(hz_x=None, hz_y=None, son_tetik=9999) for _ in range(5)]
+    ad: [dict(hz_x=None, hz_y=None, hz_z=None, son_tetik=9999,
+              gecmis_ham=collections.deque(maxlen=2)) for _ in range(5)]
     for ad, b in bolgeler.items() if b["tur"] == "el"
 }
-# Her "el" bolgesi icin bilegin (WRIST) YUMUSATILMIS konumu - bkz.
-# ayarlar.EL_OLCEK_YUMUSATMA_ORANI aciklamasi: COK SIKI kirpilan bir
-# bolgede bilek kirpma alaninin disinda kalirsa MediaPipe'in URETTIGI
-# HAM tahmin kareden kareye COK oynayabiliyor - hem el_olcegi (bkz.
-# asagisi) hem her parmak ucunun REFERANSI bu nokta oldugundan, oynak
-# bilek TUM parmak sinyallerini BIRDEN yanlis tetikliyordu (govde_olcek'te
-# daha once cozulen AYNI sorun sinifi - bkz. ayarlar.py).
-bolge_el_bilek_yumusak = {ad: (None, None) for ad, b in bolgeler.items() if b["tur"] == "el"}
+# GRUP (el-basi, 5-parmak-BIRLIKTE) refractory: yukaridaki 5 parmak ucunun
+# HER BIRI kendi son_tetik'ini BAGIMSIZ tutuyor, yani 5 ucun tetiklenmeleri
+# birbirine gore KAYDIRILMIS olsa bile (orn. basparmak kare N'de, isaret
+# parmagi kare N+2'de tetiklenirse) SAYAC neredeyse HER karede artabiliyor -
+# gercek/tek bir elde nadiren olur ama GERCEK OLMAYAN bir el tespitinde
+# (bkz. EL_TESPIT_ESIK aciklamasi, ayarlar.py) 5 ucun HEPSI ayni titrek/
+# gurultulu kaynaktan geldigi icin sIk sIk olur. Bu YENI sayac SAYACIN
+# KENDISININ (5 parmaktan HERHANGI BIRININ tetiklemesiyle) en az
+# PARMAK_YENIDEN_TETIK_MIN_KARE kare gecmeden TEKRAR ARTMAMASINI saglar -
+# EL_TESPIT_ESIK'ten BAGIMSIZ, ek/ikinci bir guvenlik katmani.
+bolge_grup_son_tetik = {ad: 9999 for ad in bolge_parmak_durum}
+# ANA KAMERA modu ('z' tusu) icin AYRI parmak durumu: bolge_parmak_durum'un
+# (yukarida) MUTLAK/panel-ici konumundan FARKLI OLCEKTE calisir - burada
+# gaze_birlesik.py ile AYNI yontemle (bilege GORE, el buyuklugune OLCEKLI,
+# bkz. A.PARMAK_HIZ_ESIK_GORELI) izlenir, o yuzden KENDI/bagimsiz durumu var.
+ana_grup_son_tetik = {"sol": 9999, "sag": 9999}  # bkz. bolge_grup_son_tetik aciklamasi - AYNI amac
+ana_parmak_durum = {
+    "sol": [dict(hz_x=None, hz_y=None, son_tetik=9999) for _ in range(5)],
+    "sag": [dict(hz_x=None, hz_y=None, son_tetik=9999) for _ in range(5)],
+}
+# el_olcegi (bilek-orta parmak kok mesafesi, 5 parmagin ORTAK paydasi) icin
+# per-taraf YUMUSATILMIS deger - bkz. ayarlar.EL_OLCEK_YUMUSATMA_ORANI
+# aciklamasi (19.08.2026, gercek video kanitiyla bulundu: el yandan/profilden
+# gorununce bu mesafe ANINDA kisalip 5 parmagi BIRDEN yanlis tetikliyordu).
+ana_el_olcek_yumusak = {"sol": None, "sag": None}
+
+# NOT (18.08.2026, kullanici karari): parmak hareketi ARTIK bilege GORELI
+# DEGIL, MUTLAK (panel-ici normalize) konumla izleniyor - bkz. asagidaki
+# "el" bolgesi blogu. Bu kamera SABIT ve hastanin eli/bilegi buyuk olcude
+# ayni yerde durdugu icin (govdeye_goreli_konum'un ana amaci olan "kisi
+# kameraya yakin/uzak, govde kayiyor" senaryolari burada GECERSIZ), 
+# gorece basit MUTLAK konum yeterli VE bilek kirpma alani disinda
+# kaldiginda olusan gurultu sorununu (bkz. proje sohbet gecmisi) KOKTEN
+# ortadan kaldiriyor - artik bilek REFERANS olarak hic KULLANILMIYOR.
+# BEDELI: hastanin eli/bilegi GERCEKTEN yer degistirirse (parmaklar hic
+# kipirdamasa bile) bu da "parmak hareketi" olarak sayilabilir - kamera
+# ve el konumu sabit kaldigi surece bu bir sorun degil.
 
 kare_zaman_damgasi_ms = 0  # pose + bolge_face + bolge_hand icin ORTAK, artan sahte zaman damgasi (bkz. gaze_birlesik.py ile AYNI yaklasim)
 
@@ -238,7 +297,8 @@ sag_parmak_olay_kaydedici = K.OlayKlibiYoneticisi(
     klasor=A.PARMAK_SAG_KLASORU, dosya_on_eki="sag_parmak",
 )
 
-print("'c' ile (yuz bolgesi tanimliysa) kalibre et. 'r' = kesit al. 'v' = video kaydi ac/kapat (genis-aci + bolgeler). Cikis: 'q'.")
+print("'c' ile (yuz bolgesi tanimliysa) kalibre et. 'r' = kesit al. 'v' = video kaydi ac/kapat (genis-aci + bolgeler). "
+      "'z' = ana kamera modu ac/kapat (zoom kapali, sayaç dogrudan genis-aci kameradan). Cikis: 'q'.")
 
 ilk_kare_mi = True
 
@@ -258,6 +318,12 @@ while True:
     _dbg_sag_kol = "?"
     _dbg_sol_bacak = "?"
     _dbg_sag_bacak = "?"
+    _dbg_sol_parmak = "?"
+    _dbg_sag_parmak = "?"
+    # ANA KAMERA modunda ('z') el-govde eslestirmesi icin - bkz. asagidaki
+    # ana kamera EL blogu VE gaze_birlesik.py'deki AYNI mantik/aciklama.
+    _sol_bilek_gecerli = False
+    _sag_bilek_gecerli = False
 
     kare_zaman_damgasi_ms += 33
 
@@ -329,6 +395,7 @@ while True:
                     G.ekran_etiket_ciz(kare, sol_bilek, "SOL", (255, 0, 255), w, h)
                     G.ekran_etiket_ciz(kare, sag_bilek_ham, "SAG", (0, 255, 255), w, h)
                 if G.gorunur_mu(sol_bilek) and G.gorunur_mu(sol_omuz):
+                    _sol_bilek_gecerli = True
                     _sol_kol_gx, _sol_kol_gy = G.govdeye_goreli_konum(sol_bilek, sol_omuz, govde_olcek)
                     (sol_kol_aktif, sol_kol_hizli_x, sol_kol_hizli_y,
                      sol_kol_yavas_x, sol_kol_yavas_y, sol_kol_cikis_sayaci) = G.hareket_algila(
@@ -351,6 +418,7 @@ while True:
                 sag_dirsek = lm[PoseLandmark.RIGHT_ELBOW]
                 sag_bilek = sag_bilek_ham
                 if G.gorunur_mu(sag_bilek) and G.gorunur_mu(sag_omuz):
+                    _sag_bilek_gecerli = True
                     _sag_kol_gx, _sag_kol_gy = G.govdeye_goreli_konum(sag_bilek, sag_omuz, govde_olcek)
                     (sag_kol_aktif, sag_kol_hizli_x, sag_kol_hizli_y,
                      sag_kol_yavas_x, sag_kol_yavas_y, sag_kol_cikis_sayaci) = G.hareket_algila(
@@ -458,9 +526,10 @@ while True:
     pw, ph = A.BOLGE_PANEL_GENISLIK, A.BOLGE_PANEL_YUKSEKLIK
     _renkler = {"yuz": (0, 255, 0), "sol_el": (255, 0, 255), "sag_el": (0, 255, 255)}
     paneller = []
-    _el_ts_ofset = 0
 
-    for ad, bilgi in bolgeler.items():
+    # ana_kamera_modu AKTIFKEN bolgeler HIC islenmez (bos sozluk uzerinde
+    # donulur) - asagida ayni ismi/verisiyi ANA KAMERA blogu besler.
+    for ad, bilgi in ({} if ana_kamera_modu else bolgeler).items():
         panel, kirpma_rect = G.bolge_kirp(kare_ham, bilgi["x"], bilgi["y"], bilgi["oran"], pw, ph)
         x1, y1, kw, kh = kirpma_rect
         cv2.rectangle(kare, (x1, y1), (x1 + kw, y1 + kh), _renkler[ad], 2)
@@ -578,13 +647,12 @@ while True:
                                 f"Y:{sayaclar['yukari']} A:{sayaclar['asagi']}",
                         (8, ph - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1)
 
-        elif bilgi["tur"] == "el" and bolge_hand is not None:
+        elif bilgi["tur"] == "el" and bolge_hand is not None and ad in bolge_hand:
             _en_buyuk_hiz = 0.0
             try:
                 rgb = cv2.cvtColor(panel, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                el_sonuc = bolge_hand.detect_for_video(mp_image, kare_zaman_damgasi_ms + _el_ts_ofset)
-                _el_ts_ofset += 1
+                el_sonuc = bolge_hand[ad].detect_for_video(mp_image, kare_zaman_damgasi_ms)
                 if A.EL_CIZIMI_GOSTER:
                     G.eller_ciz(panel, el_sonuc)
 
@@ -602,34 +670,36 @@ while True:
                         key=lambda i: math.hypot(_eller[i][0].x * pw - _merkez_x, _eller[i][0].y * ph - _merkez_y),
                     )
                     _el = _eller[_en_yakin_i]
-                    _el_bilek_ham = _el[0]
-                    _el_orta_kok = _el[9]
-                    # Bilek konumunu (referans) EMA ile yumusat - bkz.
-                    # ayarlar.EL_OLCEK_YUMUSATMA_ORANI aciklamasi/gerekcesi.
-                    _byx, _byy = bolge_el_bilek_yumusak[ad]
-                    _byx = G.yumusat(_byx, _el_bilek_ham.x, A.EL_OLCEK_MAKS_SICRAMA, A.EL_OLCEK_YUMUSATMA_ORANI)
-                    _byy = G.yumusat(_byy, _el_bilek_ham.y, A.EL_OLCEK_MAKS_SICRAMA, A.EL_OLCEK_YUMUSATMA_ORANI)
-                    bolge_el_bilek_yumusak[ad] = (_byx, _byy)
-                    _el_bilek = types.SimpleNamespace(x=_byx, y=_byy)
-                    _el_olcegi = G.govde_olcek_hesapla(_el_bilek, _el_orta_kok, A.EL_OLCEK_MIN)
 
+                    # MUTLAK konum: her parmak ucunun PANEL icindeki HAM
+                    # (normalize 0..1) konumu DOGRUDAN kullanilir - bilek
+                    # referansi/olcegi YOK (bkz. yukaridaki aciklama).
                     _durumlar = bolge_parmak_durum[ad]
                     _herhangi_biri_aktif = False
                     for _pi, _uc_idx in enumerate((4, 8, 12, 16, 20)):
                         _d = _durumlar[_pi]
-                        _gx, _gy = G.govdeye_goreli_konum(_el[_uc_idx], _el_bilek, _el_olcegi)
-                        (_tetiklendi, _d["hz_x"], _d["hz_y"], _d["son_tetik"], _hiz) = G.parmak_hareket_algila(
-                            _d["hz_x"], _d["hz_y"], _gx, _gy,
+                        _uc = _el[_uc_idx]
+                        # z de veriliyor (18.08.2026, kullanici istegi:
+                        # "z eksenini hesaba kat") - parmak kaldirma hareketi
+                        # kameraya göre derinlik ekseninde de olabilir, sadece
+                        # x,y boyle bir hareketi kacirabiliyordu (bkz.
+                        # gorsellik.parmak_hareket_algila docstring'i).
+                        (_tetiklendi, _d["hz_x"], _d["hz_y"], _d["hz_z"], _d["son_tetik"], _hiz) = G.parmak_hareket_algila(
+                            _d["hz_x"], _d["hz_y"], _uc.x, _uc.y,
                             A.PARMAK_HIZ_ESIK, A.PARMAK_HIZ_HIZLI_ORAN,
                             _d["son_tetik"], A.PARMAK_YENIDEN_TETIK_MIN_KARE,
+                            hizli_z=_d["hz_z"], z=_uc.z, gecmis_ham=_d["gecmis_ham"],
                         )
                         if _tetiklendi:
                             _herhangi_biri_aktif = True
                         _en_buyuk_hiz = max(_en_buyuk_hiz, _hiz)
 
                     _sayac_adi = "sol_parmak" if ad == "sol_el" else "sag_parmak"
-                    if _herhangi_biri_aktif and sayaclar_aktif:
+                    bolge_grup_son_tetik[ad] += 1
+                    if (_herhangi_biri_aktif and sayaclar_aktif
+                            and bolge_grup_son_tetik[ad] >= A.PARMAK_YENIDEN_TETIK_MIN_KARE):
                         sayaclar[_sayac_adi] += 1
+                        bolge_grup_son_tetik[ad] = 0
                         if A.PARMAK_OLAY_KESITI_AKTIF:
                             (sol_parmak_olay_kaydedici if ad == "sol_el" else sag_parmak_olay_kaydedici).olay_tetikle(_sayac_adi)
             except Exception:
@@ -651,6 +721,240 @@ while True:
             cv2.circle(izgara, (izgara.shape[1] - 30, 30), 8, (0, 0, 255), -1)
             cv2.putText(izgara, "REC", (izgara.shape[1] - 90, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    # =====================================================================
+    # ANA KAMERA MODU ('z' tusu ile acilir/kapanir): SABIT BOLGE/zoom
+    # sistemi TAMAMEN devre disi - YUZ (kirpma/bakis) VE EL (parmak)
+    # DOGRUDAN genis-aci/ana kameradan (kare_ham/kare, w x h) okunur.
+    # Mantik gaze_birlesik.py'nin (yakin/webcam surumu) YUZ ve EL bloklariyla
+    # NEREDEYSE BIREBIR AYNI - farkli olan SADECE veri kaynagi (kucuk/zoom'lu
+    # bir panel yerine dogrudan genis kare) VE bagimsiz landmarker/durum
+    # (ana_face/ana_hand, ana_parmak_durum) kullanilmasi.
+    # =====================================================================
+    if ana_kamera_modu:
+        try:
+            rgb = cv2.cvtColor(kare_ham, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+            if ana_face is not None:
+                yuz_sonuc = ana_face.detect_for_video(mp_image, kare_zaman_damgasi_ms)
+
+                if yuz_sonuc.face_landmarks:
+                    landmarks = yuz_sonuc.face_landmarks[0]
+
+                    if yuz_sonuc.face_blendshapes:
+                        skorlar = {b.category_name: b.score for b in yuz_sonuc.face_blendshapes[0]}
+                        sol_kirpma = skorlar.get("eyeBlinkLeft", 0.0)
+                        sag_kirpma = skorlar.get("eyeBlinkRight", 0.0)
+                        kirpma_skoru = (sol_kirpma + sag_kirpma) / 2.0
+                        goz_kapali_simdi = kirpma_skoru > A.ESIK_BLINK
+                        if goz_kapali_simdi and not goz_kapali_onceki:
+                            if sayaclar_aktif:
+                                sayaclar["kirpma"] += 1
+                                if A.KIRPMA_OLAY_KESITI_AKTIF:
+                                    kirpma_olay_kaydedici.olay_tetikle("kirpma")
+                        goz_kapali_onceki = goz_kapali_simdi
+
+                    if A.AKTIF_GAZE and gaze is not None:
+                        if yuz_sonuc.facial_transformation_matrixes:
+                            rot = np.array(yuz_sonuc.facial_transformation_matrixes[0])[:3, :3]
+                            pitch, yaw, roll = G.donus_matrisinden_aci(rot)
+                        else:
+                            yaw, pitch, roll = 0.0, 0.0, 0.0
+
+                        sx1, sy1, sx2, sy2 = G.goz_kutusu(landmarks, G.SAG_GOZ_IDX, w, h)
+                        lx1, ly1, lx2, ly2 = G.goz_kutusu(landmarks, G.SOL_GOZ_IDX, w, h)
+                        sag_goz = kare_ham[sy1:sy2, sx1:sx2]
+                        sol_goz = kare_ham[ly1:ly2, lx1:lx2]
+
+                        if sag_goz.size > 0 and sol_goz.size > 0:
+                            yuz_bulundu_bu_kare = True
+                            sag_goz = G.kirpinti_dondur(sag_goz, roll)
+                            sol_goz = G.kirpinti_dondur(sol_goz, roll)
+                            gaze.infer({
+                                "left_eye_image": G.kirpinti_hazirla(sol_goz),
+                                "right_eye_image": G.kirpinti_hazirla(sag_goz),
+                                "head_pose_angles": np.array([[yaw, pitch, 0.0]], dtype=np.float32),
+                            })
+                            vektor = gaze.get_output_tensor().data[0].copy()
+                            vektor = vektor / (np.linalg.norm(vektor) + 1e-9)
+
+                            rad = np.radians(roll)
+                            cs, sn = np.cos(rad), np.sin(rad)
+                            son_gx_ham = float(vektor[0] * cs + vektor[1] * sn)
+                            son_gy_ham = float(-vektor[0] * sn + vektor[1] * cs)
+                            gx = son_gx_ham - BIAS_GX
+                            gy = son_gy_ham - BIAS_GY
+
+                            _ham_gx, _ham_gy = gx, gy
+                            if _ham_gy < 0:
+                                gx -= A.BAKIS_ASAGI_SIZINTI_K * (-_ham_gy)
+                            gy += A.BAKIS_YANAL_SIZINTI_K * abs(_ham_gx)
+
+                            x_min, y_min, x_max, y_max = G.yuz_bbox_hesapla(landmarks, w, h)
+                            if A.YUZ_CIZIMI_GOSTER:
+                                cv2.rectangle(kare, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (0, 255, 0), 1)
+
+                            merkez_x = (x_min + x_max) / 2.0
+                            merkez_y = (y_min + y_max) / 2.0
+                            uzunluk = x_max - x_min
+
+                            gx = yumusak_gx = G.yumusat(yumusak_gx, gx, A.MAKS_BAKIS_SICRAMA)
+                            gy = yumusak_gy = G.yumusat(yumusak_gy, gy, A.MAKS_BAKIS_SICRAMA)
+                            merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
+                            merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
+                            uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
+
+                            cizgi_sol_x = int(merkez_x - uzunluk * A.KENAR_MESAFE_YATAY)
+                            cizgi_sag_x = int(merkez_x + uzunluk * A.KENAR_MESAFE_YATAY)
+                            cizgi_ust_y = int(merkez_y - uzunluk * A.KENAR_MESAFE_UST)
+                            cizgi_alt_y = int(merkez_y + uzunluk * A.KENAR_MESAFE_ALT)
+
+                            dx = uzunluk * gx
+                            dy = -uzunluk * gy
+                            ucur_x = merkez_x + dx
+                            ucur_y = merkez_y + dy
+                            duz_bakiyor = abs(gx) < A.ESIK_BAKIS_XY and abs(gy) < A.ESIK_BAKIS_XY
+
+                            if A.YUZ_CIZIMI_GOSTER and not duz_bakiyor:
+                                cv2.arrowedLine(kare, (int(merkez_x), int(merkez_y)), (int(ucur_x), int(ucur_y)),
+                                                 (0, 0, 255), 2, cv2.LINE_AA, tipLength=0.18)
+
+                            yatay = "sol" if ucur_x > cizgi_sag_x else "sag" if ucur_x < cizgi_sol_x else "merkez"
+                            dikey = "asagi" if ucur_y > cizgi_alt_y else "yukari" if ucur_y < cizgi_ust_y else "merkez"
+                            if yatay != "merkez" and yatay != onceki_yatay:
+                                if sayaclar_aktif:
+                                    sayaclar[yatay] += 1
+                                    if A.BAKIS_OLAY_KESITI_AKTIF:
+                                        bakis_olay_kaydedici.olay_tetikle(yatay)
+                            onceki_yatay = yatay
+                            if dikey != "merkez" and dikey != onceki_dikey:
+                                if sayaclar_aktif:
+                                    sayaclar[dikey] += 1
+                                    if A.BAKIS_OLAY_KESITI_AKTIF:
+                                        bakis_olay_kaydedici.olay_tetikle(dikey)
+                            onceki_dikey = dikey
+
+                            if A.YUZ_CIZIMI_GOSTER and cizgi_sol_x is not None:
+                                cv2.rectangle(kare, (cizgi_sol_x, cizgi_ust_y), (cizgi_sag_x, cizgi_alt_y), (255, 255, 0), 1)
+
+            # --- EL: bilege GORE + el buyuklugune OLCEKLI parmak takibi
+            # (gaze_birlesik.py ile AYNI yontem - bkz. ayarlar.
+            # PARMAK_HIZ_ESIK_GORELI aciklamasi). MediaPipe'in kendi Sol/Sag
+            # (handedness) etiketine GUVENILMIYOR - bu karede POSE'dan TAZE/
+            # gorunur sol_bilek/sag_bilek varsa (bkz. yukaridaki POSE blogu,
+            # _sol_bilek_gecerli/_sag_bilek_gecerli) her el KENDI en yakin
+            # govde bilegine eslenir; govde bilegi YOKSA ama IKI el tespit
+            # edildiyse ekrandaki x konumuna gore atanir; govde YOK VE TEK el
+            # varsa o el ATLANIR (yanlis sol/sag atamasi yapmaktansa).
+            if A.AKTIF_EL and ana_hand is not None:
+                el_sonuc = ana_hand.detect_for_video(mp_image, kare_zaman_damgasi_ms)
+                if A.EL_CIZIMI_GOSTER:
+                    G.eller_ciz(kare, el_sonuc)
+
+                _eller = el_sonuc.hand_landmarks
+                if _eller:
+                    _el_atama = [None] * len(_eller)  # 'sol' / 'sag' / None (belirsiz -> atla)
+                    _govde_bilekleri = []
+                    if _sol_bilek_gecerli:
+                        _govde_bilekleri.append(("sol", sol_bilek))
+                    if _sag_bilek_gecerli:
+                        _govde_bilekleri.append(("sag", sag_bilek))
+
+                    if _govde_bilekleri:
+                        _kalan_el_idx = list(range(len(_eller)))
+                        for _taraf, _gbilek in _govde_bilekleri:
+                            _en_yakin_i = None
+                            _en_yakin_mesafe = None
+                            for _i in _kalan_el_idx:
+                                _el_bilegi = _eller[_i][0]  # HandLandmark 0 = WRIST
+                                _mesafe = math.hypot(_el_bilegi.x - _gbilek.x, _el_bilegi.y - _gbilek.y)
+                                if _mesafe <= A.EL_BILEK_ESLESTIRME_MAKS_MESAFE and (
+                                    _en_yakin_mesafe is None or _mesafe < _en_yakin_mesafe
+                                ):
+                                    _en_yakin_mesafe = _mesafe
+                                    _en_yakin_i = _i
+                            if _en_yakin_i is not None:
+                                _el_atama[_en_yakin_i] = _taraf
+                                _kalan_el_idx.remove(_en_yakin_i)
+                    elif len(_eller) == 2:
+                        _sirali = sorted(range(len(_eller)), key=lambda i: _eller[i][0].x)
+                        _el_atama[_sirali[0]] = "sol"
+                        _el_atama[_sirali[1]] = "sag"
+
+                    for _i, _taraf in enumerate(_el_atama):
+                        if _taraf is None:
+                            continue
+                        _el = _eller[_i]
+                        _el_bilek = _el[0]        # WRIST
+                        _el_orta_kok = _el[9]     # MIDDLE_FINGER_MCP - el buyuklugu referansi
+                        if A.EKRANA_GORE_ETIKET_GOSTER:
+                            _el_renk = (255, 0, 255) if _taraf == "sol" else (0, 255, 255)
+                            G.ekran_etiket_ciz(kare, _el_bilek, _taraf.upper(), _el_renk, w, h)
+
+                        # el_olcegi'ni YUMUSAT (govde_olcek ile AYNI teknik,
+                        # bkz. ayarlar.EL_OLCEK_YUMUSATMA_ORANI) - el yandan/
+                        # profilden gorununce bu mesafe ANINDA kucul(ebil)ir,
+                        # yumusatma OLMAZSA 5 parmagin TUMU (gercekte
+                        # hareketsizken bile) BIRDEN yanlis tetiklenir.
+                        _el_olcegi_ham = G.govde_olcek_hesapla(_el_bilek, _el_orta_kok, A.EL_OLCEK_MIN)
+                        _el_olcegi_yumusak = ana_el_olcek_yumusak[_taraf]
+                        if (
+                            _el_olcegi_yumusak is None
+                            or A.EL_OLCEK_KABUL_MIN_ORAN * _el_olcegi_yumusak
+                            <= _el_olcegi_ham
+                            <= A.EL_OLCEK_KABUL_MAKS_ORAN * _el_olcegi_yumusak
+                        ):
+                            _el_olcegi_yumusak = G.yumusat(
+                                _el_olcegi_yumusak, _el_olcegi_ham,
+                                A.EL_OLCEK_MAKS_SICRAMA, A.EL_OLCEK_YUMUSATMA_ORANI,
+                            )
+                        ana_el_olcek_yumusak[_taraf] = _el_olcegi_yumusak
+                        _el_olcegi = _el_olcegi_yumusak
+
+                        _durumlar = ana_parmak_durum[_taraf]
+                        _herhangi_biri_aktif = False
+                        _en_buyuk_hiz = 0.0
+                        for _pi, _uc_idx in enumerate((4, 8, 12, 16, 20)):
+                            _d = _durumlar[_pi]
+                            _gx, _gy = G.govdeye_goreli_konum(_el[_uc_idx], _el_bilek, _el_olcegi)
+                            (_parmak_tetiklendi, _d["hz_x"], _d["hz_y"], _, _d["son_tetik"], _hiz) = G.parmak_hareket_algila(
+                                _d["hz_x"], _d["hz_y"], _gx, _gy,
+                                A.PARMAK_HIZ_ESIK_GORELI, A.PARMAK_HIZ_HIZLI_ORAN,
+                                _d["son_tetik"], A.PARMAK_YENIDEN_TETIK_MIN_KARE,
+                            )
+                            if _parmak_tetiklendi:
+                                _herhangi_biri_aktif = True
+                            _en_buyuk_hiz = max(_en_buyuk_hiz, _hiz)
+
+                        ana_grup_son_tetik[_taraf] += 1
+                        if _taraf == "sol":
+                            _dbg_sol_parmak = _en_buyuk_hiz
+                            if (_herhangi_biri_aktif and sayaclar_aktif
+                                    and ana_grup_son_tetik["sol"] >= A.PARMAK_YENIDEN_TETIK_MIN_KARE):
+                                sayaclar["sol_parmak"] += 1
+                                ana_grup_son_tetik["sol"] = 0
+                                if A.PARMAK_OLAY_KESITI_AKTIF:
+                                    sol_parmak_olay_kaydedici.olay_tetikle("sol_parmak")
+                        else:
+                            _dbg_sag_parmak = _en_buyuk_hiz
+                            if (_herhangi_biri_aktif and sayaclar_aktif
+                                    and ana_grup_son_tetik["sag"] >= A.PARMAK_YENIDEN_TETIK_MIN_KARE):
+                                sayaclar["sag_parmak"] += 1
+                                ana_grup_son_tetik["sag"] = 0
+                                if A.PARMAK_OLAY_KESITI_AKTIF:
+                                    sag_parmak_olay_kaydedici.olay_tetikle("sag_parmak")
+        except Exception:
+            pass
+
+        # Bolgeler penceresi bu modda islenmiyor (izgara=None kalirdi) -
+        # kullaniciya modun neden bos gozuktugunu acikca soylemek icin
+        # kucuk bir bilgi karesi gosteriliyor.
+        izgara = np.zeros((ph, pw, 3), dtype=np.uint8)
+        cv2.putText(izgara, "ANA KAMERA MODU AKTIF", (10, ph // 2 - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(izgara, "(sabit bolge/zoom KAPALI - 'z' ile geri don)", (10, ph // 2 + 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
     # --- Genis-aci pencereye SAYAÇLAR/kontroller yaz ------------------------
     cv2.putText(kare, f"KIRPMA: {sayaclar['kirpma']}   KESIT: {sayaclar['kesit']}",
                 (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
@@ -665,9 +969,11 @@ while True:
     cv2.putText(kare, f"SAYAÇLAR: {'AKTIF' if sayaclar_aktif else 'DURAKLATILDI'} (h)",
                 (20, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                 (0, 255, 0) if sayaclar_aktif else (0, 0, 255), 2)
-    if not bolgeler:
-        cv2.putText(kare, "BOLGE TANIMLI DEGIL - once 'python nokta_sec.py' calistir "
-                          "(yuz/parmak sayaclari calismaz)",
+    cv2.putText(kare, f"MOD: {'ANA KAMERA (zoom kapali)' if ana_kamera_modu else 'SABIT BOLGE (zoom)'} (z)",
+                (300, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255) if ana_kamera_modu else (0, 255, 0), 2)
+    if not bolgeler and not ana_kamera_modu:
+        cv2.putText(kare, "BOLGE TANIMLI DEGIL - once 'python nokta_sec.py' calistir ya da "
+                          "'z' ile ANA KAMERA moduna gec",
                     (20, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 165, 255), 2)
 
     if gcs_test_aktif:
@@ -689,7 +995,15 @@ while True:
         f"BACAK sol:{_dbg_fmt(_dbg_sol_bacak)} sag:{_dbg_fmt(_dbg_sag_bacak)} (esik {A.BACAK_HAREKET_GORELI_ESIK:.2f})",
         (20, 238), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1,
     )
-    cv2.putText(kare, "c: kalibre  |  r: kesit al  |  v: video kaydi (genis+bolgeler)  |  h: sayac ac/kapat  |  g: GCS testi  |  q: cikis",
+    if ana_kamera_modu:
+        cv2.putText(
+            kare,
+            f"TANI PARMAK (ana kamera) sol:{_dbg_fmt(_dbg_sol_parmak)} sag:{_dbg_fmt(_dbg_sag_parmak)} "
+            f"(esik {A.PARMAK_HIZ_ESIK_GORELI:.2f})",
+            (20, 258), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1,
+        )
+    cv2.putText(kare, "c: kalibre  |  r: kesit al  |  v: video kaydi (genis+bolgeler)  |  h: sayac ac/kapat  |  "
+                      "z: ana kamera modu ac/kapat  |  g: GCS testi  |  q: cikis",
                 (20, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
 
     if kaydedici.kayit_yapiliyor:
@@ -755,6 +1069,13 @@ while True:
     if tus == ord("h"):
         sayaclar_aktif = not sayaclar_aktif
         print(f"Sayaçlar {'AKTIF' if sayaclar_aktif else 'DURAKLATILDI'}.")
+    if tus == ord("z"):
+        ana_kamera_modu = not ana_kamera_modu
+        if ana_kamera_modu:
+            print("Ana kamera modu AKTIF - sabit bolge/zoom sistemi KAPALI, "
+                  "yuz/el sayaclari dogrudan genis-aci kameradan besleniyor.")
+        else:
+            print("Ana kamera modu KAPALI - sabit bolge/zoom sistemine donuldu.")
     if tus == ord("g"):
         if not gcs_test_aktif:
             gcs_test_aktif = True
@@ -775,7 +1096,12 @@ if pose_landmarker is not None:
 if bolge_face is not None:
     bolge_face.close()
 if bolge_hand is not None:
-    bolge_hand.close()
+    for _lm in bolge_hand.values():
+        _lm.close()
+if ana_face is not None:
+    ana_face.close()
+if ana_hand is not None:
+    ana_hand.close()
 if kaydedici.kayit_yapiliyor:
     kaydedici.bitir()
 if bolge_kaydedici.kayit_yapiliyor:

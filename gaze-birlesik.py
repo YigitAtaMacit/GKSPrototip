@@ -174,6 +174,12 @@ parmak_durum = {
     "sol": [dict(hz_x=None, hz_y=None, son_tetik=9999) for _ in range(5)],
     "sag": [dict(hz_x=None, hz_y=None, son_tetik=9999) for _ in range(5)],
 }
+# el_olcegi (bilek-orta parmak kok mesafesi, 5 parmagin ORTAK paydasi) icin
+# per-taraf YUMUSATILMIS deger - bkz. ayarlar.EL_OLCEK_YUMUSATMA_ORANI
+# aciklamasi (19.08.2026, gaze_birlesik_uzak.py'deki AYNI kod yolu gercek
+# video kanitiyla test edilirken bulundu: el yandan/profilden gorununce bu
+# mesafe ANINDA kisalip 5 parmagi BIRDEN yanlis tetikliyordu).
+el_olcek_yumusak = {"sol": None, "sag": None}
 # NOT: KOL/BACAK'takinin AKSINE, burada AYRICA bir "onceki_aktif" (edge-
 # trigger) durumu YOK - parmak_hareket_algila'nin "tetiklendi" cikisi zaten
 # TEK KARELIK bir "az once yeni bir hareket algilandi" darbesi (kendi ic
@@ -767,7 +773,26 @@ while True:
                         # hangi tarafa saydigini gorsel olarak dogrula.
                         _el_renk = (255, 0, 255) if _taraf == "sol" else (0, 255, 255)
                         G.ekran_etiket_ciz(kare, _el_bilek, _taraf.upper(), _el_renk, w, h)
-                    _el_olcegi = G.govde_olcek_hesapla(_el_bilek, _el_orta_kok, A.EL_OLCEK_MIN)
+
+                    # el_olcegi'ni YUMUSAT (govde_olcek ile AYNI teknik, bkz.
+                    # ayarlar.EL_OLCEK_YUMUSATMA_ORANI) - el yandan/profilden
+                    # gorununce bu mesafe ANINDA kucul(ebil)ir, yumusatma
+                    # OLMAZSA 5 parmagin TUMU (gercekte hareketsizken bile)
+                    # BIRDEN yanlis tetiklenir.
+                    _el_olcegi_ham = G.govde_olcek_hesapla(_el_bilek, _el_orta_kok, A.EL_OLCEK_MIN)
+                    _el_olcegi_yumusak = el_olcek_yumusak[_taraf]
+                    if (
+                        _el_olcegi_yumusak is None
+                        or A.EL_OLCEK_KABUL_MIN_ORAN * _el_olcegi_yumusak
+                        <= _el_olcegi_ham
+                        <= A.EL_OLCEK_KABUL_MAKS_ORAN * _el_olcegi_yumusak
+                    ):
+                        _el_olcegi_yumusak = G.yumusat(
+                            _el_olcegi_yumusak, _el_olcegi_ham,
+                            A.EL_OLCEK_MAKS_SICRAMA, A.EL_OLCEK_YUMUSATMA_ORANI,
+                        )
+                    el_olcek_yumusak[_taraf] = _el_olcegi_yumusak
+                    _el_olcegi = _el_olcegi_yumusak
 
                     # HER PARMAK UCU (basparmak, isaret, orta, yuzuk, serce)
                     # KENDI BAGIMSIZ parmak_hareket_algila durumuyla AYRI
@@ -782,9 +807,9 @@ while True:
                     for _pi, _uc_idx in enumerate((4, 8, 12, 16, 20)):
                         _d = _durumlar[_pi]
                         _gx, _gy = G.govdeye_goreli_konum(_el[_uc_idx], _el_bilek, _el_olcegi)
-                        (_parmak_tetiklendi, _d["hz_x"], _d["hz_y"], _d["son_tetik"], _hiz) = G.parmak_hareket_algila(
+                        (_parmak_tetiklendi, _d["hz_x"], _d["hz_y"], _, _d["son_tetik"], _hiz) = G.parmak_hareket_algila(
                             _d["hz_x"], _d["hz_y"], _gx, _gy,
-                            A.PARMAK_HIZ_ESIK, A.PARMAK_HIZ_HIZLI_ORAN,
+                            A.PARMAK_HIZ_ESIK_GORELI, A.PARMAK_HIZ_HIZLI_ORAN,
                             _d["son_tetik"], A.PARMAK_YENIDEN_TETIK_MIN_KARE,
                         )
                         if _parmak_tetiklendi:
@@ -865,7 +890,7 @@ while True:
     )
     cv2.putText(
         kare,
-        f"TANI PARMAK sol:{_dbg_fmt(_dbg_sol_parmak)} sag:{_dbg_fmt(_dbg_sag_parmak)} (esik {A.PARMAK_HIZ_ESIK:.2f})",
+        f"TANI PARMAK sol:{_dbg_fmt(_dbg_sol_parmak)} sag:{_dbg_fmt(_dbg_sag_parmak)} (esik {A.PARMAK_HIZ_ESIK_GORELI:.2f})",
         (20, 258), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1,
     )
     cv2.putText(kare, "c: kalibre et  |  r: kesit al  |  v: video kaydi  |  h: sayac ac/kapat  |  z: yakinlastirma ac/kapat  |  g: GCS testi  |  q: cikis",

@@ -110,7 +110,7 @@ BACAK_HAREKET_MIN_CIKIS_KARE = 8
 # False yaparsan ilgili gorsel EKRANDA CIZILMEZ ama tespit (ve dolayisiyla
 # ilgili sayaclar/kalibrasyon) YINE DE CALISIR - sadece gorsel gizlenir.
 GOVDE_CIZIMI_GOSTER = False
-EL_CIZIMI_GOSTER = False
+EL_CIZIMI_GOSTER = True
 YUZ_CIZIMI_GOSTER = True
 
 # FaceLandmarker'in yuzu "yuz" olarak kabul etmesi icin gereken minimum
@@ -120,6 +120,48 @@ YUZ_CIZIMI_GOSTER = True
 # kolaylastirir - ama COK dusurursen yuz OLMAYAN seyleri de "yuz" sanma
 # riski artar (yanlis pozitif). 0.1-0.15 arasi genelde makul bir sinir.
 YUZ_TESPIT_ESIK = 0.15
+
+# HandLandmarker'in bir bolgeyi/kareyi "el" olarak kabul etmesi icin gereken
+# minimum guven skoru (0-1, hem tespit HEM izleme/tracking icin - bkz.
+# modeller.py'de nerede kullanildigi). Varsayilan MediaPipe degeri 0.5'tir.
+#
+# GECMISI: ilk once (video_bolgeler_19_08_2026_08_41_57.mp4'te GOZLENEN
+# sorun - SABIT bolge/zoom modunda el kirpilan bolgeden CIKTIGINDA
+# HandLandmarker'in o kucuk/dokulu -orn. pantolon kumasi- alanda GERCEK
+# OLMAYAN bir el "gorup" PARMAK sayaclarini yanlis artirmasi) bu esik 0.6'ya
+# YUKSELTILMISTI. AMA asil kok neden BASKAYMIS: modeller.bolge_landmarklarini_yukle
+# sol_el VE sag_el icin TEK bir HandLandmarker PAYLASTIRIYORDU - HER karede
+# once sol_el kirpintisi sonra sag_el kirpintisi AYNI instance'a verildigi
+# icin, VIDEO modunun "onceki karenin ROI'sini izleme" mekanizmasi BIR ELIN
+# ROI'sini DIGERININ "onceki karesi" saniyor, bu da GERCEK bir eli bile
+# "bir goruyor bir kaybediyor" (titrek/kararsiz tespit) sonucuna yol
+# aciyordu (kullanici geri bildirimi: "sol eli bir algiliyor bir
+# algilamiyor, sag eli de cok az algiladi") - o instance-paylasimi HATASI
+# 19.08.2026'da giderildi (bkz. modeller.bolge_landmarklarini_yukle
+# el_bolge_adlari parametresi - artik HER bolge KENDI/AYRI landmarker'ini
+# kullanir). Bu duzeltmeden SONRA, video_19_08_2026_09_20_32.mp4 (gercek
+# kullanici kaydi) uzerinde offline bir deneyle ({shared,separate} x
+# {0.3,0.4,0.5,0.6} esik) olculdu: PAYLASIMLI+0.6 (eski durum) elin
+# GERCEKTEN kadrajda oldugu pencerede sol_el icin sadece %19, sag_el icin
+# %6 tespit veriyordu; AYRI-instance+0.6 (sadece bu duzeltmeyle) sol_el
+# %54 sag_el %7'ye cikti (sag_el HALA kotu, cunku 0.6 artik GEREKENDEN
+# yuksek - onceki yukseltmenin nedeni olan sorun zaten instance-paylasimi
+# duzeltmesiyle cozuldu); AYRI-instance+0.3 sol_el %90 sag_el %53'e cikti -
+# bu yuzden esik 0.3'e GERI cekildi (aynı deneyde bu deger BOS/yanlis
+# bolgelerde de dusuk bir yanlis-pozitif orani -%5-8- veriyordu, kabul
+# edilebilir bulundu cunku PARMAK sayaclarinda ayrica bir GRUP-seviyesi
+# refractory guvenligi de var, bkz. gaze_birlesik_uzak.py
+# bolge_grup_son_tetik).
+#
+# NOT (cozulmemis, kod DEGIL kamera/kurulum sorunu): sag_el bu testte HATTA
+# EN IYI ayarla bile sol_el'den COK daha kotu (%53 vs %90) - crop'a bakildiginda
+# el butun sure boyunca ACIKCA/durgun gorunur durumdayken bile. Muhtemel
+# neden: 640x480 kaynak kamerada 7x (oran) dijital yakinlastirma cok kucuk
+# bir kaynak-piksel alanini (~91x68px) 320x320'ye gerdigi icin goruntu
+# BULANIK kaliyor - bu, kodla degil ya YUKSEK COZUNURLUKLU bir kamerayla
+# ya da sag_el'in "oran" degerini (zoom_noktalari.json) dusurup el biraz
+# daha genis/az-yakinlastirilmis kirpilarak iyilestirilebilir.
+EL_TESPIT_ESIK = 0.3
 
 # DIJITAL YAKINLASTIRMA: kare kirpilip eski boyutuna geri buyutulur - yuz
 # kucuk/uzakta kaliyorsa (orn. direk/tepeden kamera) bunu artirmak
@@ -382,11 +424,52 @@ GOVDE_OLCEK_KABUL_MAKS_ORAN = 1.6  # ham okuma, yumusatilmisin bu oranindan BUYU
 # dogrulandi: el kalkik tutulurken 7 ayri hafif kipirdanmanin HEPSI ayri ayri
 # yakalaniyor (once: sadece 1/8), parmaklar TAMAMEN sabitken (80 senaryo x
 # 300 kare, gercekci landmark titremesi) SIFIR yanlis pozitif.
-PARMAK_HIZ_ESIK = 0.06           # ardisik iki karedeki (yumusatilmis) konum degisimi bu kadar olursa "hareket"
+# MUTLAK OLCEGE GORE KALIBRE EDILDI (18.08.2026) - asagidaki "MUTLAK KONUM"
+# aciklamasina bkz. Sentetik testle (21 landmark, bagimsiz gercekci gurultu +
+# kademeli parmak hareketi) tarandi: ESIK=0.01 gurultu>=0.008'de yanlis
+# pozitif vermeye basliyor (jitter=0.01'de 21, 0.012'de 50 yanlis tetik),
+# ESIK=0.015 ise gurultu 0.01'e kadar SIFIR yanlis pozitif verirken 0.03
+# buyuklugunde (ve cogu zaman 0.02 buyuklugunde) gercek hareketi hala
+# yakaliyor - bu yuzden daha fazla gurultu payi icin 0.015 secildi.
+PARMAK_HIZ_ESIK = 0.015       # ardisik iki karedeki (yumusatilmis) konum degisimi bu kadar olursa "hareket" (panel genisligi/yuksekliginin orani, 0..1)
+
+# gaze_birlesik.py (yakin/webcam) VE gaze_birlesik_uzak.py'nin YENI "ana
+# kamera modu" ('z' tusu, 19.08.2026 eklendi) icin AYRI esik: bu ikisi
+# parmak ucu konumunu govdeye_goreli_konum ile BILEGE GORE ve EL BUYUKLUGUNE
+# OLCEKLENMIS olarak izler (yukaridaki PARMAK_HIZ_ESIK'in kullandigi
+# "panel-ici MUTLAK konum" ile AYNI OLCEK DEGIL - bilek-goreli/olcekli
+# degerler cok daha BUYUK araliklarda hareket eder, orn. bir parmagin tam
+# acilip kapanmasi el buyuklugune gore 0.1-0.5 arasi bir degisim uretebilir).
+# ONEMLI: bu iki sabiti KARISTIRMA - PARMAK_HIZ_ESIK'i buraya (ya da tam
+# tersini) verirsen ya asiri hassas (surekli yanlis sayim) ya da asiri
+# duyarsiz (gercek hareketi kacirir) sonuc alirsin.
+PARMAK_HIZ_ESIK_GORELI = 0.06
 PARMAK_HIZ_HIZLI_ORAN = 0.6      # yumusatma orani (konumun HAM veriyi ne kadar yakindan takip ettigi)
 PARMAK_YENIDEN_TETIK_MIN_KARE = 6  # iki ayri tetiklenme arasi ARKA ARKAYA en az kac kare gecmeli (debounce DEGIL, kisa bir refractory sure)
 
 EL_OLCEK_MIN = 0.01  # govde_olcek_hesapla'daki min_olcek tabani (el, omuzdan COK KUCUK oldugu icin ayri/daha kucuk bir taban)
+
+# --- EL OLCEGI YUMUSATMA (19.08.2026, gercek kullanici videosuyla bulundu:
+# video_19_08_2026_00_25_44.mp4) - GOVDE_OLCEK_* ile TAMAMEN AYNI sorun
+# sinifi (bkz. yukaridaki GOVDE_OLCEK_YUMUSATMA_ORANI aciklamasi), sadece
+# EL icin: el_olcegi (bilek - orta parmak kok mesafesi) HER 5 parmagin
+# PAYDASI - tek bir karede kucuk cikinca 5 parmagin TUMU (parmaklar
+# GERCEKTE hareketsizken bile) esigin uzerine FIRLIYOR.
+# SORUN NASIL ORTAYA CIKTI: el KAMERAYA DUZ (avuc/sirt tam karsiya)
+# durmayip YANDAN/PROFILDEN gorununce (orn. "karate darbesi" pozisyonu,
+# ya da elin DIS/arka yuzu kameraya donukken govde de hafif donuk olursa)
+# bilek-orta parmak kok arasi EKRANDAKI izdusum mesafesi KISALIR (kisaltma/
+# foreshortening) - el_olcegi HER KAREDE yeniden, YUMUSATMASIZ hesaplandigi
+# icin bu kisalma ANINDA payda'yi kucultup, elin GERCEKTE durdugu bir sahnede
+# bile parmak sayacinin surekli/duzenli araliklarla artmasina yol aciyordu
+# (video kaniti: el gozle SABIT dururken sayac ~saniyede bir artiyordu).
+# COZUM: govde_olcek ile AYNI teknik - el_olcegi'ni (per el/taraf BAGIMSIZ)
+# EMA ile yumusat + tek karedeki degisimi sinirla + makul aralik disi
+# okumalari TAMAMEN yoksay.
+EL_OLCEK_YUMUSATMA_ORANI = 0.25
+EL_OLCEK_MAKS_SICRAMA = 0.01     # tek karede el_olcegi'nin degisebilecegi AZAMI miktar
+EL_OLCEK_KABUL_MIN_ORAN = 0.6    # ham okuma, yumusatilmisin bu oranindan KUCUKSE yoksay
+EL_OLCEK_KABUL_MAKS_ORAN = 1.6   # ham okuma, yumusatilmisin bu oranindan BUYUKSE yoksay
 
 # Bir eldeki tek bilek, HANGI govde tarafina (sol_bilek/sag_bilek, POSE'dan)
 # ait sayilsin diye eslestirilirken izin verilen AZAMI ekran mesafesi
@@ -507,7 +590,7 @@ BOLGE_NOKTALARI_DOSYASI = BURASI / "zoom_noktalari.json"
 # degistirilip JSON'a kaydedilir) - takip_yakinlastir/DIJITAL_YAKINLASTIRMA
 # ile AYNI anlamda: kirpma alani = kare boyutu / oran (kucuk kirpma alani =
 # fazla zoom). Kamera ne kadar UZAKSA bu deger o kadar BUYUK olmali.
-BOLGE_ZOOM_ORANI_VARSAYILAN = 7.0
+BOLGE_ZOOM_ORANI_VARSAYILAN = 6.0
 
 # Bolunmus ekranda (izgara) her panelin piksel boyutu - kucultursen
 # pencere daha az yer kaplar (goruntu kalitesini ETKILEMEZ, tespit YINE DE
@@ -516,29 +599,31 @@ BOLGE_ZOOM_ORANI_VARSAYILAN = 7.0
 BOLGE_PANEL_GENISLIK = 320
 BOLGE_PANEL_YUKSEKLIK = 320
 
-# --- EL BILEGI YUMUSATMA (SADECE gaze_birlesik_uzak.py bolge modu, ---------
-# 18.08.2026 eklendi, gercek kullanici videosuyla teshis edildi) -----------
-# SORUN: "el" bolgesi COK SIKI kirpilirsa (yuksek BOLGE_ZOOM_ORANI/oran),
-# BILEK (HandLandmark 0) bazen kirpma alaninin DISINDA/kenarinda kalir -
-# MediaPipe yine de bir tahmin URETIR ama bu tahmin kareden kareye COK
-# oynak/guvenilmez olabilir. govdeye_goreli_konum HEM referans (bilek) HEM
-# olcek (bilek - orta parmak kok mesafesi, el_olcegi) icin bu noktayi
-# kullandigindan, bilek tahmini oynadikca 5 parmak ucunun TUMU (parmaklar
-# GERCEKTE hic kipirdamamis olsa bile) AYNI ANDA sicriyor - ekranda "HIZ"
-# degeri esigin COK UZERINE (orn. 0.3-1.3, esik 0.12 iken) FIRLADIGI
-# gercek kullanici videosuyla dogrulandi (bkz. proje sohbet gecmisi,
-# 18.08.2026). Bu TAM OLARAK govde_olcek'te (bkz. yukaridaki GOVDE_OLCEK_
-# YUMUSATMA_ORANI aciklamasi) daha once cozulen "ortak/gurultulu payda TUM
-# uzuvlari BIRDEN yanlis tetikliyor" sorununun EL surumu.
+# --- EL BOLGESI PARMAK ALGISI: MUTLAK KONUM (18.08.2026, ------------------
+# kullanici karariyla degistirildi) -----------------------------------------
+# ESKIDEN: parmak ucu konumu bilege GORELI (govdeye_goreli_konum) ve el
+# buyuklugune OLCEKLENMIS olarak izleniyordu - "el" bolgesi COK SIKI
+# kirpilirsa (yuksek BOLGE_ZOOM_ORANI) bilek kirpma alaninin disinda
+# kalabiliyordu, MediaPipe yine de bir tahmin URETIYORDU ama bu tahmin
+# kareden kareye COK oynak olabiliyordu - bilek HEM referans HEM olcek icin
+# kullanildigindan, oynak bilek 5 parmak ucunun TUMUNU AYNI ANDA yanlis
+# tetikliyordu (gercek kullanici videosuyla dogrulandi, 18.08.2026).
 #
-# COZUM: bilek konumu (referans noktasi) da govde_olcek gibi EMA ile
-# yumusatiliyor (bkz. gaze_birlesik_uzak.py) - hem el_olcegi hem her parmak
-# ucunun goreli konumu artik HAM/tek-karelik bilek tahmini yerine bu
-# YUMUSATILMIS bilege gore hesaplaniyor.
+# ARTIK: gaze_birlesik_uzak.py'de "el" bolgeleri bilek referansi/olcegi HIC
+# KULLANMIYOR - her parmak ucunun panel icindeki MUTLAK (normalize 0..1)
+# konumu DOGRUDAN parmak_hareket_algila'ya veriliyor (bkz. o dosyadaki "el"
+# blogu). Bu, SABIT kamera + buyuk olcude SABIT duran bir el senaryosunda
+# (bu projenin hedefledigi kullanim) govdeye_goreli_konum'un COZMEYE
+# calistigi "kisi kameraya yakin/uzak, govde kayiyor" sorunlarini ZATEN
+# YASAMADIGIMIZ icin gereksiz karmasiklik + bilek-gurultusu riskini birlikte
+# ortadan kaldiriyor. BEDELI: elin/bilegin GERCEKTEN yer degistirmesi de
+# (parmaklar kipirdamasa bile) parmak hareketi gibi sayilabilir - kamera ve
+# el konumu sabit kaldigi surece pratikte sorun olmaz.
 #
-# ONEMLI: bu sadece bir GUVENLIK AGI - ASIL/kalici cozum nokta_sec.py'de
-# bolgeyi bilek DE goruntude/kirpma alaninda kalacak sekilde isaretlemek
-# (gerekirse o bolge icin '-' ile zoom oranini biraz azaltip bilegi de
-# kadraja almak).
-EL_OLCEK_YUMUSATMA_ORANI = 0.1   # GOVDE_OLCEK_YUMUSATMA_ORANI'ndan (0.2) DAHA agresif - deneme
-EL_OLCEK_MAKS_SICRAMA = 0.008    # tek karede bilek konumunun (normalize, panel-ici) degisebilecegi AZAMI miktar - deneme
+# ONEMLI - OLCEK DEGISTI: PARMAK_HIZ_ESIK artik "el buyuklugune orantili"
+# degil, DOGRUDAN panel genisliginin/yuksekliginin bir orani (0..1) - eski
+# goreli degerlerden (orn. 0.04-0.12) COK KUCUK olmasi gerekiyordu, yeni
+# varsayilan 0.015 (yukarida). Yanlis pozitif GORURSEN (el/parmaklar sabitken
+# sayac artiyorsa) 0.02-0.03'e YUKSELT; hassasiyet YETERSIZSE (gercek
+# hareket yakalanmiyorsa) 0.01'e kadar DUSUR. Ekrandaki "HIZ" yazisini
+# izleyerek elin/kameranin ZOOM oranina gore ince ayar yapabilirsin.

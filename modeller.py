@@ -117,6 +117,9 @@ def mediapipe_landmarker_lari_yukle():
                 base_options=BaseOptions(model_asset_path=str(A.HAND_TASK_YOLU)),
                 running_mode=VisionRunningMode.VIDEO,
                 num_hands=2,
+                min_hand_detection_confidence=A.EL_TESPIT_ESIK,
+                min_hand_presence_confidence=A.EL_TESPIT_ESIK,
+                min_tracking_confidence=A.EL_TESPIT_ESIK,
             )
         )
         print(f"[zaman] HandLandmarker yuklendi: {time.time() - _t5:.1f}s")
@@ -156,7 +159,7 @@ def pose_landmarker_yukle():
     return pose_landmarker
 
 
-def bolge_landmarklarini_yukle(bolge_turleri):
+def bolge_landmarklarini_yukle(bolge_turleri, etiket="bolge", el_bolge_adlari=None):
     """gaze_birlesik_uzak.py'nin SABIT BOLGE panelleri (bkz. ayarlar.BOLGE_*,
     nokta_sec.py) icin AYRI/kendi FaceLandmarker + HandLandmarker'ini yukler
     - genis-kare PoseLandmarker'indan (bkz. pose_landmarker_yukle) VE
@@ -170,8 +173,37 @@ def bolge_landmarklarini_yukle(bolge_turleri):
     tanimlanmis bolgelerin turlerinden turetilir) - SADECE GEREKEN modeli
     yukler, gereksiz baslangic suresi harcamamak icin.
 
-    Donus: (bolge_face_landmarker, bolge_hand_landmarker) - tanimli degilse
-    (ilgili tur bolge_turleri'nde yoksa) None.
+    etiket: SADECE log/print mesajlarinda gorunur (davranisi etkilemez) -
+    gaze_birlesik_uzak.py bu fonksiyonu IKI KEZ cagirir: bir kere SABIT
+    BOLGE panelleri icin ("bolge", varsayilan), bir kere de 'z' tusuyla
+    acilan ANA KAMERA modu (zoom kapali, tam kare uzerinde dogrudan tespit)
+    icin - iki AYRI/bagimsiz landmarker cifti, konsol ciktisinda hangisinin
+    hangisi oldugunu ayirt edebilmek icin bu parametre eklendi.
+
+    el_bolge_adlari: (YENI, 19.08.2026 - gercek kullanici videosuyla
+    bulunan sorun: "sol eli bir algiliyor bir algilamiyor, sag eli de cok
+    az algiladi") "el" turundeki bolgelerin ADLARI (orn. ["sol_el","sag_el"]).
+    VERILMEZSE (None/bos - ANA KAMERA cagrisinin kullandigi yol) eskisi gibi
+    TEK bir HandLandmarker doner (num_hands=2) - bu DOGRU, cunku o modda
+    TUM kare TEK bir cagriyla islenir, iki el ayni goruntude.
+    VERILIRSE (SABIT BOLGE cagrisinin kullandigi yol) HER AD ICIN KENDI/AYRI
+    HandLandmarker'i olusturulur, donus (bolge_face, {ad: HandLandmarker})
+    olur (tek instance yerine ad->landmarker sozlugu). NEDEN GEREKLI:
+    HandLandmarker VIDEO modunda onceki karenin el konumunu/ROI'sini
+    "izleyerek" (bkz. min_tracking_confidence) hizli ve KARARLI kalir - ama
+    SABIT BOLGE modunda sol_el VE sag_el AYNI HandLandmarker'i (dolayisiyla
+    AYNI "onceki ROI" hafizasini) PAYLASIYORDU: her karede once sol_el
+    kirpintisi sonra sag_el kirpintisi AYNI instance'a veriliyordu, yani
+    sag_el cagrisi bir onceki (sol elin) ROI'sini "kendi onceki karesi"
+    saniyor, tam tersi de gecerli - bu, GERCEKTEN GORUNEN bir eli bile "bir
+    goruyor bir kaybediyor" (kararsiz/titrek tespit) sonucuna yol aciyordu.
+    Her bolgenin KENDI landmarker'i olunca kendi ROI/izleme gecmisini
+    SADECE kendi (uzamsal olarak tutarli) kirpintisinden biriktirir.
+
+    Donus: el_bolge_adlari verilmediyse (bolge_face_landmarker,
+    bolge_hand_landmarker); verildiyse (bolge_face_landmarker,
+    {ad: hand_landmarker}). Ilgili tur bolge_turleri'nde yoksa hand/face
+    None (ya da el_bolge_adlari verilse bile "el" hic yoksa None) kalir.
     """
     BaseOptions = mp.tasks.BaseOptions
     FaceLandmarker = mp.tasks.vision.FaceLandmarker
@@ -182,7 +214,7 @@ def bolge_landmarklarini_yukle(bolge_turleri):
 
     bolge_face = None
     if "yuz" in bolge_turleri:
-        _indir_gerekirse(A.FACE_TASK_URL, A.FACE_TASK_YOLU, "face_landmarker.task (bolge)")
+        _indir_gerekirse(A.FACE_TASK_URL, A.FACE_TASK_YOLU, f"face_landmarker.task ({etiket})")
         _t = time.time()
         bolge_face = FaceLandmarker.create_from_options(
             FaceLandmarkerOptions(
@@ -196,19 +228,38 @@ def bolge_landmarklarini_yukle(bolge_turleri):
                 min_tracking_confidence=A.YUZ_TESPIT_ESIK,
             )
         )
-        print(f"[zaman] FaceLandmarker yuklendi (yuz bolgesi icin): {time.time() - _t:.1f}s")
+        print(f"[zaman] FaceLandmarker yuklendi ({etiket}): {time.time() - _t:.1f}s")
 
     bolge_hand = None
     if "el" in bolge_turleri:
-        _indir_gerekirse(A.HAND_TASK_URL, A.HAND_TASK_YOLU, "hand_landmarker.task (bolge)")
-        _t = time.time()
-        bolge_hand = HandLandmarker.create_from_options(
-            HandLandmarkerOptions(
-                base_options=BaseOptions(model_asset_path=str(A.HAND_TASK_YOLU)),
-                running_mode=VisionRunningMode.VIDEO,
-                num_hands=2,
+        _indir_gerekirse(A.HAND_TASK_URL, A.HAND_TASK_YOLU, f"hand_landmarker.task ({etiket})")
+        if el_bolge_adlari:
+            bolge_hand = {}
+            for _ad in el_bolge_adlari:
+                _t = time.time()
+                bolge_hand[_ad] = HandLandmarker.create_from_options(
+                    HandLandmarkerOptions(
+                        base_options=BaseOptions(model_asset_path=str(A.HAND_TASK_YOLU)),
+                        running_mode=VisionRunningMode.VIDEO,
+                        num_hands=1,
+                        min_hand_detection_confidence=A.EL_TESPIT_ESIK,
+                        min_hand_presence_confidence=A.EL_TESPIT_ESIK,
+                        min_tracking_confidence=A.EL_TESPIT_ESIK,
+                    )
+                )
+                print(f"[zaman] HandLandmarker yuklendi ({etiket}, {_ad}): {time.time() - _t:.1f}s")
+        else:
+            _t = time.time()
+            bolge_hand = HandLandmarker.create_from_options(
+                HandLandmarkerOptions(
+                    base_options=BaseOptions(model_asset_path=str(A.HAND_TASK_YOLU)),
+                    running_mode=VisionRunningMode.VIDEO,
+                    num_hands=2,
+                    min_hand_detection_confidence=A.EL_TESPIT_ESIK,
+                    min_hand_presence_confidence=A.EL_TESPIT_ESIK,
+                    min_tracking_confidence=A.EL_TESPIT_ESIK,
+                )
             )
-        )
-        print(f"[zaman] HandLandmarker yuklendi (el bolgeleri icin): {time.time() - _t:.1f}s")
+            print(f"[zaman] HandLandmarker yuklendi ({etiket}): {time.time() - _t:.1f}s")
 
     return bolge_face, bolge_hand

@@ -6,6 +6,7 @@ Cizim icin mediapipe.tasks.python.vision.drawing_utils / drawing_styles
 kullanilir - bu, GUNCEL mediapipe pip paketiyle (0.10.32+, 1.0.0) birlikte
 gelen, Tasks API'nin KENDI resmi cizim modulu.
 """
+import collections
 import math
 
 import cv2
@@ -335,7 +336,8 @@ def hareket_algila(hizli_x, hizli_y, yavas_x, yavas_y, x, y, onceki_hareketli,
 
 
 def parmak_hareket_algila(hizli_x, hizli_y, x, y, esik, hizli_oran=0.6,
-                           son_tetik_uzerinden_kare=9999, min_yeniden_tetik_kare=5):
+                           son_tetik_uzerinden_kare=9999, min_yeniden_tetik_kare=5,
+                           hizli_z=None, z=None, gecmis_ham=None):
     """Parmak ucu icin hareket_algila'DAN FARKLI, DAHA TEPKISEL bir tetikleyici
     (17.08.2026, kullanici istegi: "parmak biraz oynadi mi hemen algilasin,
     asagi inip tekrar kalkmasina gerek olmasin").
@@ -371,18 +373,72 @@ def parmak_hareket_algila(hizli_x, hizli_y, x, y, esik, hizli_oran=0.6,
       az kac kare gecmesi gerektigi (tek bir kipirdanmanin birden fazla
       ardisik karede sayilmasini onler - "debounce" degil, kisa bir
       "yeniden silahlanma/refractory" suresi).
+    - hizli_z/z: (18.08.2026, kullanici istegi: "z eksenini hesaba kat")
+      ISTEGE BAGLI derinlik bileseni. SABIT/UZAK kamerada parmak "kaldirma"
+      hareketi kamera acisina gore cogu zaman kameraya dogru/kameradan
+      uzaga (derinlik ekseninde) oluyor olabilir - o zaman ekran
+      duzleminde (x,y) neredeyse hic kaymaz ve SADECE x,y kullanan eski
+      hesaplama bu hareketi YAKALAYAMAZ. z verilirse (MediaPipe El
+      landmark'larinin z'si - bilek derinligi 0 kabul edilip x ile AYNI
+      olcekte) hiz UC BOYUTLU (x,y,z) hesaplanir; z verilmezse (None)
+      eskisi gibi SADECE 2 BOYUTLU kalir (geriye uyumlu).
 
-    Donus: (tetiklendi_mi, yeni_hizli_x, yeni_hizli_y, yeni_son_tetik_uzerinden_kare, hiz)
+    - gecmis_ham: (YENI, 18.08.2026 - GERCEK kullanici videosuyla tespit
+      edildi) collections.deque(maxlen=2) - bu parmagin bir onceki EN FAZLA
+      2 HAM (filtresiz) konumu. NEDEN GEREKLI: MediaPipe ARADA SIRADA, el
+      goruntude HIC KIPIRDAMAZKEN bile TEK BIR KAREDE parmak ucunu YANLIS
+      yerde tahmin edebiliyor (gercek videoda dogrulandi: hiz bir karede
+      aniden 0.37'ye sicrayip, sonraki karelerde 0.22 -> 0.09 -> 0.04 diye
+      TEK KARELIK bir EMA "sonme kuyrugu" halinde geri iniyordu - gercek
+      hareket DEGIL, tek karelik bir algi hatasi). SORUN: bu sonme kuyrugu
+      YUZUNDEN ardisik 2 karenin de esigi gecmis olmasi ("ustuste kac kare"
+      turu bir filtre) YETERLI OLMUYOR - tek hatali karenin EMA'daki izi
+      zaten 2. karede de esigi gecebiliyor. COZUM: EMA'ya HAM veri
+      DOGRUDAN verilmek yerine, ONCE bu karenin + onceki 2 karenin HAM
+      konumunun MEDYANI alinir (3 ornekten medyan) - bu, TEK BASINA
+      sapan/yanlis bir kareyi TAMAMEN eler (3 ornekten sadece 1'i sapkınsa
+      medyani hic etkilemez), ama GERCEK/surekli bir hareketi (ardisik
+      karelerde AYNI yonde degisen konum) byuk olcude korur. gecmis_ham
+      None/bos ise (ilk 2 kare) medyan alinamaz, ham deger dogrudan
+      kullanilir - bu, sadece programin/bolgenin EN BASINDAKI 1-2 karede
+      gecerli, pratikte onemsiz bir istisna.
+
+    Donus: (tetiklendi_mi, yeni_hizli_x, yeni_hizli_y, yeni_hizli_z,
+    yeni_son_tetik_uzerinden_kare, hiz)
     - hiz SADECE tani/debug amacli (esikle karsilastirmak icin ekrana yazdirilabilir).
+    - gecmis_ham CAGIRANIN verdigi deque YERINDE (in-place) guncellenir -
+      ayrica DONDURULMEZ, cagiran KENDI sakladigi deque nesnesini tekrar
+      kullanmaya devam eder.
     """
+    uc_boyutlu = z is not None
+
+    if gecmis_ham is not None:
+        if len(gecmis_ham) == 2:
+            (ox1, oy1, oz1), (ox2, oy2, oz2) = gecmis_ham[0], gecmis_ham[1]
+            x_efektif = sorted((ox1, ox2, x))[1]
+            y_efektif = sorted((oy1, oy2, y))[1]
+            z_efektif = sorted((oz1, oz2, z))[1] if uc_boyutlu else None
+        else:
+            x_efektif, y_efektif, z_efektif = x, y, z
+        gecmis_ham.append((x, y, z if uc_boyutlu else 0.0))
+    else:
+        x_efektif, y_efektif, z_efektif = x, y, z
+
     if hizli_x is None:
-        return False, x, y, son_tetik_uzerinden_kare + 1, 0.0
-    yeni_hizli_x = hizli_oran * x + (1 - hizli_oran) * hizli_x
-    yeni_hizli_y = hizli_oran * y + (1 - hizli_oran) * hizli_y
-    hiz = math.hypot(yeni_hizli_x - hizli_x, yeni_hizli_y - hizli_y)
+        return False, x_efektif, y_efektif, (z_efektif if uc_boyutlu else hizli_z), son_tetik_uzerinden_kare + 1, 0.0
+
+    yeni_hizli_x = hizli_oran * x_efektif + (1 - hizli_oran) * hizli_x
+    yeni_hizli_y = hizli_oran * y_efektif + (1 - hizli_oran) * hizli_y
+    if uc_boyutlu:
+        yeni_hizli_z = hizli_oran * z_efektif + (1 - hizli_oran) * hizli_z
+        hiz = math.sqrt((yeni_hizli_x - hizli_x) ** 2 + (yeni_hizli_y - hizli_y) ** 2
+                         + (yeni_hizli_z - hizli_z) ** 2)
+    else:
+        yeni_hizli_z = hizli_z
+        hiz = math.hypot(yeni_hizli_x - hizli_x, yeni_hizli_y - hizli_y)
     tetiklendi = hiz > esik and son_tetik_uzerinden_kare >= min_yeniden_tetik_kare
     yeni_sayac = 0 if tetiklendi else son_tetik_uzerinden_kare + 1
-    return tetiklendi, yeni_hizli_x, yeni_hizli_y, yeni_sayac, hiz
+    return tetiklendi, yeni_hizli_x, yeni_hizli_y, yeni_hizli_z, yeni_sayac, hiz
 
 
 def omuz_genisligi_piksel(sol_omuz, sag_omuz, w, h):
