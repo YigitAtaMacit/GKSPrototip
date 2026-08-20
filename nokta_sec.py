@@ -1,41 +1,8 @@
-"""SABIT BOLGE (zoom) noktalarini fare ile isaretleme araci.
+"""SABIT BOLGE (zoom) noktalarini fare ile isaretleme araci - gaze_birlesik_uzak.py'nin hangi ekran bolgesinin yuz/sol el/sag el oldugunu bilmesi icin.
 
-gaze_birlesik_uzak.py (kamera hastadan UZAKTA/sabit durdugu senaryo) HANGI
-EKRAN BOLGESININ yuz, hangisinin sol/sag el oldugunu SENDEN once ogrenmesi
-gerekir - bu script SADECE bunun icin var: kamera goruntusu acilir, fare ile
-tikla, isaretledigin nokta ayarlar.BOLGE_NOKTALARI_DOSYASI'na
-(zoom_noktalari.json) kaydedilir. kamerabul.py gibi ANA uygulamayi
-(MediaPipe modelleri, OpenVINO vs.) YUKLEMEZ - bu yuzden hizli acilir.
-
-Kullanim:
-    python nokta_sec.py            (ayarlar.KAMERA_INDEKSI kullanilir)
-    python nokta_sec.py 2          (KAMERA_INDEKSI=2 ile dene, ayarlar.py'yi
-                                     degistirmeden - once kamerabul.py ile
-                                     dogru indeksi bulmus olman gerekir)
-
-ADIMLAR:
-    1) Once kamerabul.py ile UZAK kameranin indeksini bul (gerekirse).
-    2) Bu scripti calistir, kamera hastayi/odayi gordugu NIHAI konumunda
-       SABIT dururken (kamera veya kadraj sonradan degismeyecekse) noktalari
-       isaretle.
-    3) 1/2/3 ile yuz / sol el / sag el sec, goruntu uzerinde o bolgenin
-       oldugu yere SOL TIKLA. +/- ile o bolgenin zoom oranini ayarla (kirmizi/
-       renkli kutu, o bolgenin ZOOM YAPILDIGINDA neyi kapsayacagini onizler -
-       kutu ne kadar KUCUKSE o kadar YAKINLASTIRILMIS/detayli gorunecek demektir).
-    4) 's' ile KAYDET (kaydetmeden 'q' ile cikarsan degisiklikler KAYBOLUR).
-    5) gaze_birlesik_uzak.py'yi calistir - isaretledigin bolgeler otomatik
-       okunur.
-
-Tuslar:
-    1 = "yuz" bolgesini SEC (yesil)
-    2 = "sol el" bolgesini SEC (macenta - SOL/SAG PARMAK sayaclarinin
-        kullandigi renkle AYNI, bkz. gaze_birlesik.py EKRANA_GORE_ETIKET_GOSTER)
-    3 = "sag el" bolgesini SEC (sari)
-    (sol fare tiklamasi) = SECILI bolgenin noktasini oraya yerlestir/tasi
-    +/- = SECILI bolgenin zoom oranini artir/azalt
-    u = SECILI bolgenin noktasini SIL
-    s = TUM bolgeleri dosyaya KAYDET
-    q = kaydetmeden CIK
+Kullanim: python nokta_sec.py [kamera_indeksi].
+Adimlar: kamerabul.py ile indeks bul -> bu scripti calistir -> 1/2/3 ile yuz/sol el/sag el sec, sol tikla -> +/- ile zoom orani -> 's' ile kaydet.
+Tuslar: 1/2/3=bolge sec, sol tik=nokta yerlestir, +/-=zoom orani, u=sil, s=kaydet, q=kaydetmeden cik.
 """
 import sys
 
@@ -50,9 +17,7 @@ TUR_SIRASI = ["yuz", "sol_el", "sag_el"]
 
 kamera_indeksi = int(sys.argv[1]) if len(sys.argv) > 1 else A.KAMERA_INDEKSI
 
-# {ad: {"x","y","oran"}} - onceden kaydedilmis bolgeler varsa YUKLENIR
-# (uzerine ekleme/duzenleme yapabilesin diye, sifirdan baslamana gerek yok).
-bolgeler = B.bolgeleri_yukle()
+bolgeler = B.bolgeleri_yukle()  # onceden kaydedilmis bolgeler varsa yuklenir, uzerine duzenlenebilir
 secili_tur = "yuz"
 kaydedilmemis_degisiklik = False
 

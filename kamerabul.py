@@ -1,15 +1,4 @@
-"""Hangi KAMERA_INDEKSI'nin telefon kamerasi (Phone Link ile baglanan)
-oldugunu bulmak icin kucuk yardimci script - ana uygulamayi (MediaPipe
-modelleri vs.) yuklemedigi icin COK daha hizli acilir.
-
-Kullanim:
-    python kamera_bul.py
-
-Her index icin ayri bir pencere acar, pencere basligindaki numarayi
-gorursun. Telefon kamerasinin goruntusunu hangi pencerede goruyorsan, o
-numarayi ayarlar.py'deki KAMERA_INDEKSI'ye yaz. Herhangi bir pencerede
-'q' tusuna basarsan hepsi kapanir.
-"""
+"""KAMERA_INDEKSI'yi bulmak icin yardimci script: her index icin ayri pencere acar, dogru numarayi ayarlar.py'ye yaz, 'q' ile cik."""
 import cv2
 
 MAKS_INDEKS = 6  # 0'dan bu sayiya kadar dener (yetersizse artir)

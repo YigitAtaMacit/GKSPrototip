@@ -1,12 +1,4 @@
-"""Kesit (JPEG) ve video (MP4) kaydi.
-
-Bu dosya gaze backend'inden (L2CS/OpenVINO fark etmez) tamamen bagimsizdir,
-oldugu gibi tasindi.
-
-VIDEO: kareler once bellekte biriktirilir, kayit DURUNCA gercek gecen
-sureden (kare sayisi / gecen saniye) dogru FPS hesaplanip OYLE yazilir -
-boylece video hizli/yavas gorunmez, gercek zamanla ayni surer.
-"""
+"""Kesit (JPEG) ve video (MP4) kaydi - kareler bellekte biriktirilir, kayit bitince gercek gecen sureden dogru FPS hesaplanip yazilir."""
 import collections
 import time
 
@@ -23,17 +15,7 @@ A.GOZ_BAKISI_KLASORU.mkdir(parents=True, exist_ok=True)
 
 
 class VideoKaydedici:
-    """Video kaydi durumunu tutan kucuk bir sinif - main dongusu sadece
-    baslat()/kare_ekle()/bitir() cagirir, FPS hesabi ve dosya yazma burada.
-
-    dosya_on_eki (17.08.2026 eklendi): cikti dosyasinin ad ON EKI -
-    VARSAYILAN "video", yani gaze_birlesik.py'nin (ve daha once yazilmis
-    HERHANGI bir kodun) ESKI davranisiyla TAM UYUMLU/degismedi. YENI: artik
-    AYNI ANDA BIRDEN FAZLA VideoKaydedici orneği farkli on eklerle
-    kullanilabilir - orn. gaze_birlesik_uzak.py genis-aci goruntusu icin
-    "video", SABIT BOLGE (zoom) izgarasi icin AYRICA "video_bolgeler" on
-    ekiyle IKINCI bir kayit tutuyor, boylece ikisi birbirinin ustune
-    yazilmiyor/karismiyor."""
+    """Video kaydi durumu - main dongusu baslat()/kare_ekle()/bitir() cagirir; dosya_on_eki farkli akislarin (genis-aci/bolgeler) ayni anda ayri kaydedilmesini saglar."""
 
     def __init__(self, dosya_on_eki="video"):
         self.dosya_on_eki = dosya_on_eki
@@ -48,8 +30,7 @@ class VideoKaydedici:
         print(f"Video kaydi basladi ({self.dosya_on_eki}).")
 
     def kare_ekle(self, kare):
-        """TUM overlay'ler cizildikten SONRA cagrilmali ki dosyada da
-        ekranda gordugun her sey olsun."""
+        """Tum overlay'ler cizildikten SONRA cagrilmali ki dosyada da ekrandaki her sey olsun."""
         if self.kayit_yapiliyor:
             self.kareler.append(kare.copy())
 
@@ -83,24 +64,7 @@ class VideoKaydedici:
 
 
 class OlayKlibiYoneticisi:
-    """Bir OLAY (orn. kol kaldirma) tetiklendiginde, olay anindan ONCEKI ve
-    SONRAKI birkac saniyeyi TEK bir MP4'te kaydeder (guvenlik kamerasi
-    "event clip" mantigi).
-
-    Kullanim: her karede kare_ekle(kare) cagir (surekli, olay olsun olmasin -
-    bu, "once_saniye" kadar bir onbellek/circular buffer tutar). Bir olay
-    olustugunda olay_tetikle() cagir - o andan itibaren "sonra_saniye" kadar
-    daha kare toplanir, sonra onbellek + yeni kareler birlikte tek dosyaya
-    yazilir. Program kapanirken bitir()'i cagirmayi unutma (yarim kalan
-    klibi de yazar).
-
-    NOT: Bir olay toplanirken (aktifken) YENI bir olay_tetikle() cagrisi
-    klibi BITIRMEZ, pencereyi UZATIR (olay_zamani'ni simdiki zamana
-    ceker) - yani ayni ~4sn'lik pencere icinde ikinci (ucuncu, ...) bir
-    olay olursa (orn. iki kol art arda kalkarsa) TEK, daha UZUN bir klip
-    cikar ve HER olayin kendi "sonrasi" da tam olarak dahil olur. Sadece
-    kol tamamen "sonra_saniye" kadar sakin kalirsa klip yazilir.
-    """
+    """Bir olay tetiklendiginde oncesi+sonrasi birkac saniyeyi tek MP4'te kaydeder (guvenlik kamerasi "event clip" mantigi); ust uste gelen olaylar pencereyi bitirmez, uzatir."""
 
     def __init__(self, once_saniye, sonra_saniye, klasor, dosya_on_eki):
         self.once_saniye = once_saniye
@@ -116,9 +80,7 @@ class OlayKlibiYoneticisi:
 
     def olay_tetikle(self, etiket=""):
         if self.olay_aktif:
-            # Zaten toplanan bir klip var - BITIRMEK yerine penceresini
-            # UZATIYORUZ ki bu yeni olayin da "sonrasi" tam dahil olsun.
-            self.olay_zamani = time.time()
+            self.olay_zamani = time.time()  # klibi bitirmek yerine penceresini uzatiyoruz
             if etiket and etiket not in self._etiketler:
                 self._etiketler.append(etiket)
             print(f"Olay kesiti UZATILDI ({etiket or 'olay'}) - pencere +{self.sonra_saniye:.1f}s ileri tasindi.")
@@ -131,8 +93,7 @@ class OlayKlibiYoneticisi:
         print(f"Olay kesiti basladi ({etiket or 'olay'}) - {self.once_saniye:.1f}s once + {self.sonra_saniye:.1f}s sonra kaydedilecek...")
 
     def kare_ekle(self, kare):
-        """TUM overlay'ler cizildikten SONRA, HER karede cagrilmali (olay
-        olsun olmasin) - onbellegi surekli guncel tutar."""
+        """Her karede (olay olsun olmasin) cagrilmali - onbellegi surekli guncel tutar."""
         simdi = time.time()
         if self.olay_aktif:
             self.sonra_kareleri.append(kare.copy())
@@ -145,8 +106,7 @@ class OlayKlibiYoneticisi:
                 self.onbellek.popleft()
 
     def bitir(self):
-        """Program kapanirken cagir - o an toplanmakta olan (eksik bile
-        olsa) klibi yazar."""
+        """Program kapanirken cagir - o an toplanmakta olan (eksik bile olsa) klibi yazar."""
         if self.olay_aktif:
             self._klibi_yaz()
 
@@ -154,9 +114,7 @@ class OlayKlibiYoneticisi:
         simdi = time.time()
         once_kareleri = [k for (_, k) in self.onbellek]
         tum_kareler = once_kareleri + self.sonra_kareleri
-        # GERCEK gecen sure: pencere UZATILMIS olabilir (birden fazla olay
-        # ust uste geldiyse), bu yuzden sabit once+sonra yerine ilk tetikten
-        # (once_saniye kadar geriden) simdiye kadarki GERCEK sureyi kullan.
+        # pencere uzatilmis olabilir, o yuzden gercek sureyi ilk tetikten (once_saniye geriden) hesapla
         pencere_baslangici = (self.ilk_tetik_zamani - self.once_saniye) if self.ilk_tetik_zamani else simdi
         gecen_sure = simdi - pencere_baslangici
         etiketler = list(self._etiketler)

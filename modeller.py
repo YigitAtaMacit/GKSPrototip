@@ -1,11 +1,4 @@
-"""OpenVINO gaze-estimation-adas-0002 (bakis) ve MediaPipe Tasks (yuz/govde/el)
-modellerinin yuklenmesi.
-
-gaze-estimation-adas-0002.xml/.bin, MediaPipe .task dosyalari gibi ilk
-calistirmada BURAYA (ayarlar.BURASI) otomatik indirilir (internet gerekir,
-sadece ilk sefer). Indirme basarisiz olursa ayarlar.py'deki URL'lerden elle
-indirip ayni klasore koyabilirsin.
-"""
+"""OpenVINO gaze-estimation-adas-0002 ve MediaPipe Tasks modellerinin yuklenmesi - dosyalar ilk calistirmada ayarlar.BURASI'na otomatik indirilir."""
 import time
 import urllib.request
 
@@ -21,13 +14,7 @@ def _indir_gerekirse(url, yol, ad):
 
 
 def gaze_pipeline_yukle():
-    """OpenVINO gaze-estimation-adas-0002 modelini yukler, calistirilabilir
-    (compiled) modeli dondurur.
-
-    NOT: openvino import'u BILEREK burada, fonksiyon icinde (lazy) -
-    ayarlar.AKTIF_GAZE=False iken bu fonksiyon hic cagrilmiyor, yani bu
-    import'un suresi de HIC harcanmiyor.
-    """
+    """OpenVINO gaze modelini yukler, compiled modeli dondurur - openvino import'u lazy (AKTIF_GAZE=False'ta hic yuklenmez)."""
     import openvino as ov
 
     _indir_gerekirse(A.GAZE_MODEL_XML_URL, A.GAZE_MODEL_XML, "gaze-estimation-adas-0002.xml")
@@ -49,15 +36,7 @@ def gaze_pipeline_yukle():
 
 
 def mediapipe_landmarker_lari_yukle():
-    """FaceLandmarker'i (her zaman), PoseLandmarker/HandLandmarker'i (ayarlar.
-    AKTIF_POSE/AKTIF_EL True ise) yukler. (face, pose, hand) dondurur - pose/
-    hand kapaliysa None olur.
-
-    FaceLandmarker HEM blendshape (kirpma icin) HEM facial transformation
-    matrix (gaze icin head-pose) HEM 478 nokta landmark (gaze icin goz
-    kirpintisi) uretecek sekilde ayarlanir - L2CS surumunden farkli olarak
-    ayrica bir RetinaFace/yuz tespiti CALISMAZ, tek dedektor hepsine yeter.
-    """
+    """FaceLandmarker (her zaman) + PoseLandmarker/HandLandmarker (AKTIF_POSE/AKTIF_EL ise) yukler, (face,pose,hand) dondurur - kapali olanlar None."""
     BaseOptions = mp.tasks.BaseOptions
     FaceLandmarker = mp.tasks.vision.FaceLandmarker
     FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
@@ -73,13 +52,7 @@ def mediapipe_landmarker_lari_yukle():
     if A.AKTIF_EL:
         _indir_gerekirse(A.HAND_TASK_URL, A.HAND_TASK_YOLU, "hand_landmarker.task")
 
-    # KIMLIK_KILIDI_AKTIF ise FaceLandmarker/PoseLandmarker BIRDEN FAZLA aday
-    # dondurur (asagidaki *_ADAY_SAYISI kadar) - bu, gaze_birlesik.py'nin
-    # "kilitli kisiyi digerlerinden ayirt edebilmesi" icin gerekli (bkz.
-    # ayarlar.py). Bu, MediaPipe'in KENDI (hafif) tespitini biraz daha
-    # calistirir ama pahali OpenVINO bakis modeli SADECE secilen tek aday
-    # icin cagrildigindan performansi onemli olcude etkilemez.
-    yuz_aday_sayisi = A.YUZ_ADAY_SAYISI if A.KIMLIK_KILIDI_AKTIF else 1
+    yuz_aday_sayisi = A.YUZ_ADAY_SAYISI if A.KIMLIK_KILIDI_AKTIF else 1  # KIMLIK_KILIDI_AKTIF ise birden fazla aday donsun ki kilitli kisi ayirt edilebilsin
     govde_aday_sayisi = A.GOVDE_ADAY_SAYISI if A.KIMLIK_KILIDI_AKTIF else 1
 
     _t3 = time.time()
@@ -118,8 +91,8 @@ def mediapipe_landmarker_lari_yukle():
                 running_mode=VisionRunningMode.VIDEO,
                 num_hands=2,
                 min_hand_detection_confidence=A.EL_TESPIT_ESIK,
-                min_hand_presence_confidence=A.EL_TESPIT_ESIK,
-                min_tracking_confidence=A.EL_TESPIT_ESIK,
+                min_hand_presence_confidence=A.EL_IZLEME_ESIK,
+                min_tracking_confidence=A.EL_IZLEME_ESIK,
             )
         )
         print(f"[zaman] HandLandmarker yuklendi: {time.time() - _t5:.1f}s")
@@ -127,19 +100,7 @@ def mediapipe_landmarker_lari_yukle():
     return face_landmarker, pose_landmarker, hand_landmarker
 
 def pose_landmarker_yukle():
-    """SADECE PoseLandmarker'i yukler (FaceLandmarker'SIZ) - AYRICA/YENI bir
-    fonksiyon, mediapipe_landmarker_lari_yukle'ye DOKUNMADAN eklendi.
-
-    NEDEN AYRI: mediapipe_landmarker_lari_yukle HER ZAMAN (docstring'inde de
-    belirtildigi gibi) bir FaceLandmarker yukler - gaze_birlesik.py bunu
-    hem kirpma/bakis HEM kimlik-kilidi-adaylari icin kullaniyor. Ama
-    gaze_birlesik_uzak.py'de (bkz. o dosyanin basindaki aciklama) yuz/el
-    ARTIK genis kareden degil, nokta_sec.py ile isaretlenmis SABIT bolge
-    panellerinden (bkz. bolge_landmarklarini_yukle) okunuyor - genis kare
-    icin SADECE govde/kol/bacak takibi amacli PoseLandmarker gerekiyor.
-    Kullanilmayacak bir FaceLandmarker'i yine de yuklemek gereksiz
-    baslangic suresi/RAM harcar, bu yuzden bu YALIN alternatif eklendi.
-    """
+    """SADECE PoseLandmarker'i yukler (FaceLandmarker'siz) - gaze_birlesik_uzak.py'de yuz/el SABIT bolgelerden okundugu icin genis karede gereksiz FaceLandmarker yukune gerek yok."""
     BaseOptions = mp.tasks.BaseOptions
     PoseLandmarker = mp.tasks.vision.PoseLandmarker
     PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
@@ -160,51 +121,7 @@ def pose_landmarker_yukle():
 
 
 def bolge_landmarklarini_yukle(bolge_turleri, etiket="bolge", el_bolge_adlari=None):
-    """gaze_birlesik_uzak.py'nin SABIT BOLGE panelleri (bkz. ayarlar.BOLGE_*,
-    nokta_sec.py) icin AYRI/kendi FaceLandmarker + HandLandmarker'ini yukler
-    - genis-kare PoseLandmarker'indan (bkz. pose_landmarker_yukle) VE
-    normal gaze_birlesik.py'nin kimlik-kilitli/coklu-aday landmarker'larindan
-    (bkz. mediapipe_landmarker_lari_yukle) TAMAMEN BAGIMSIZDIR - kendi
-    zaman damgasi sayaci kullanilir (bkz. gaze_birlesik_uzak.py), TEK hedef
-    (num_faces=1) beklenir (bolge zaten TEK yuzu/eli kapsayacak sekilde elle
-    isaretlendigi icin coklu-aday kimlik kilidi mantigina GEREK YOK).
-
-    bolge_turleri: {"yuz", "el"} kumesinin bir alt kumesi (nokta_sec.py'de
-    tanimlanmis bolgelerin turlerinden turetilir) - SADECE GEREKEN modeli
-    yukler, gereksiz baslangic suresi harcamamak icin.
-
-    etiket: SADECE log/print mesajlarinda gorunur (davranisi etkilemez) -
-    gaze_birlesik_uzak.py bu fonksiyonu IKI KEZ cagirir: bir kere SABIT
-    BOLGE panelleri icin ("bolge", varsayilan), bir kere de 'z' tusuyla
-    acilan ANA KAMERA modu (zoom kapali, tam kare uzerinde dogrudan tespit)
-    icin - iki AYRI/bagimsiz landmarker cifti, konsol ciktisinda hangisinin
-    hangisi oldugunu ayirt edebilmek icin bu parametre eklendi.
-
-    el_bolge_adlari: (YENI, 19.08.2026 - gercek kullanici videosuyla
-    bulunan sorun: "sol eli bir algiliyor bir algilamiyor, sag eli de cok
-    az algiladi") "el" turundeki bolgelerin ADLARI (orn. ["sol_el","sag_el"]).
-    VERILMEZSE (None/bos - ANA KAMERA cagrisinin kullandigi yol) eskisi gibi
-    TEK bir HandLandmarker doner (num_hands=2) - bu DOGRU, cunku o modda
-    TUM kare TEK bir cagriyla islenir, iki el ayni goruntude.
-    VERILIRSE (SABIT BOLGE cagrisinin kullandigi yol) HER AD ICIN KENDI/AYRI
-    HandLandmarker'i olusturulur, donus (bolge_face, {ad: HandLandmarker})
-    olur (tek instance yerine ad->landmarker sozlugu). NEDEN GEREKLI:
-    HandLandmarker VIDEO modunda onceki karenin el konumunu/ROI'sini
-    "izleyerek" (bkz. min_tracking_confidence) hizli ve KARARLI kalir - ama
-    SABIT BOLGE modunda sol_el VE sag_el AYNI HandLandmarker'i (dolayisiyla
-    AYNI "onceki ROI" hafizasini) PAYLASIYORDU: her karede once sol_el
-    kirpintisi sonra sag_el kirpintisi AYNI instance'a veriliyordu, yani
-    sag_el cagrisi bir onceki (sol elin) ROI'sini "kendi onceki karesi"
-    saniyor, tam tersi de gecerli - bu, GERCEKTEN GORUNEN bir eli bile "bir
-    goruyor bir kaybediyor" (kararsiz/titrek tespit) sonucuna yol aciyordu.
-    Her bolgenin KENDI landmarker'i olunca kendi ROI/izleme gecmisini
-    SADECE kendi (uzamsal olarak tutarli) kirpintisinden biriktirir.
-
-    Donus: el_bolge_adlari verilmediyse (bolge_face_landmarker,
-    bolge_hand_landmarker); verildiyse (bolge_face_landmarker,
-    {ad: hand_landmarker}). Ilgili tur bolge_turleri'nde yoksa hand/face
-    None (ya da el_bolge_adlari verilse bile "el" hic yoksa None) kalir.
-    """
+    """SABIT BOLGE panelleri icin ayri FaceLandmarker+HandLandmarker yukler; el_bolge_adlari verilirse (SABIT BOLGE modu) her ad icin AYRI HandLandmarker doner ({ad: HandLandmarker}) - aksi halde (ANA KAMERA modu) TEK paylasimli landmarker (num_hands=2) yeterli, cunku iki el ayni tek karede birlikte islenir. AYRI landmarker sarti: TEK paylasimli instance'ta sol_el/sag_el ayni "onceki ROI" hafizasini paylasip birbirinin takibini bozuyordu (19.08.2026 bulundu). Donus: (bolge_face, bolge_hand_landmarker_veya_sozlugu)."""
     BaseOptions = mp.tasks.BaseOptions
     FaceLandmarker = mp.tasks.vision.FaceLandmarker
     FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
@@ -243,8 +160,8 @@ def bolge_landmarklarini_yukle(bolge_turleri, etiket="bolge", el_bolge_adlari=No
                         running_mode=VisionRunningMode.VIDEO,
                         num_hands=1,
                         min_hand_detection_confidence=A.EL_TESPIT_ESIK,
-                        min_hand_presence_confidence=A.EL_TESPIT_ESIK,
-                        min_tracking_confidence=A.EL_TESPIT_ESIK,
+                        min_hand_presence_confidence=A.EL_IZLEME_ESIK,
+                        min_tracking_confidence=A.EL_IZLEME_ESIK,
                     )
                 )
                 print(f"[zaman] HandLandmarker yuklendi ({etiket}, {_ad}): {time.time() - _t:.1f}s")
@@ -256,8 +173,8 @@ def bolge_landmarklarini_yukle(bolge_turleri, etiket="bolge", el_bolge_adlari=No
                     running_mode=VisionRunningMode.VIDEO,
                     num_hands=2,
                     min_hand_detection_confidence=A.EL_TESPIT_ESIK,
-                    min_hand_presence_confidence=A.EL_TESPIT_ESIK,
-                    min_tracking_confidence=A.EL_TESPIT_ESIK,
+                    min_hand_presence_confidence=A.EL_IZLEME_ESIK,
+                    min_tracking_confidence=A.EL_IZLEME_ESIK,
                 )
             )
             print(f"[zaman] HandLandmarker yuklendi ({etiket}): {time.time() - _t:.1f}s")

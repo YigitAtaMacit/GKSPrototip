@@ -1,34 +1,14 @@
-"""SABIT BOLGE (zoom) noktalarinin dosyaya kaydedilmesi/okunmasi.
-
-nokta_sec.py bu modulle noktalari zoom_noktalari.json'a YAZAR,
-gaze_birlesik_uzak.py AYNI moduIle OKUR - format ikisi arasinda TEK bir
-yerde (burada) tanimli, boylece iki dosya ARASINDA tutarsizlik olusmaz.
-
-DESTEKLENEN BOLGELER (bkz. ayarlar.py'deki BOLGE_* aciklamasi): sadece 3
-SABIT ad/slot var - "yuz", "sol_el", "sag_el" (projedeki sol_parmak/
-sag_parmak, sol/sag/yukari/asagi SAYAÇLARIYLA birebir eslesecek sekilde
-BILEREK sabit tutuldu; hasta/kamera basina zaten TEK yuz + TEK sol el +
-TEK sag el olur). Her biri en fazla BIR noktaya sahip olabilir - nokta_sec.py
-ayni turu tekrar tikladiginda ESKI noktanin YERINE yenisini yazar.
-"""
+"""SABIT BOLGE (zoom) noktalarinin zoom_noktalari.json'a kaydi/okumasi - nokta_sec.py yazar, gaze_birlesik_uzak.py okur; sadece "yuz"/"sol_el"/"sag_el" adlari gecerli, her biri tek nokta tutar."""
 import json
 
 import ayarlar as A
 
-# ad (JSON anahtari) -> tur (gaze_birlesik_uzak.py'nin hangi MediaPipe
-# modelini/sayacini kullanacagini belirler).
+# ad (JSON anahtari) -> tur (hangi MediaPipe modelini/sayacini kullanacagini belirler).
 TUR_ESLESTIRME = {"yuz": "yuz", "sol_el": "el", "sag_el": "el"}
 
 
 def bolgeleri_yukle(dosya_yolu=None):
-    """Donus: {ad: {"x":float, "y":float, "oran":float, "tur":str}}.
-
-    Dosya yoksa/bossa/bozuksa BOS sozluk doner (hata FIRLATMAZ) - proje
-    genelinde benimsenen "supheliyse/eksikse sessizce atla, uygulamayi
-    COKERTME" ilkesiyle tutarli: gaze_birlesik_uzak.py bolge tanimlanmamis
-    bir turu sadece o turu ISLEMEDEN atlar, genis-aci (kol/bacak) gorunumu
-    yine de calismaya devam eder.
-    """
+    """Donus: {ad: {"x","y","oran","tur"}} - dosya yoksa/bozuksa hata firlatmadan bos sozluk doner."""
     dosya_yolu = dosya_yolu or A.BOLGE_NOKTALARI_DOSYASI
     if not dosya_yolu.exists():
         return {}
@@ -59,10 +39,7 @@ def bolgeleri_yukle(dosya_yolu=None):
 
 
 def bolgeleri_kaydet(bolgeler, kamera_indeksi, dosya_yolu=None):
-    """bolgeler: {ad: {"x","y","oran",...}} (nokta_sec.py'nin kendi ic
-    sozlugu - "tur" alani olsa da olmasa da fark etmez, YAZILMAZ, cunku
-    OKURKEN zaten TUR_ESLESTIRME'den yeniden turetiliyor).
-    """
+    """bolgeler: {ad: {"x","y","oran",...}} - "tur" alani yazilmaz, okurken TUR_ESLESTIRME'den yeniden turetilir."""
     dosya_yolu = dosya_yolu or A.BOLGE_NOKTALARI_DOSYASI
     kaydedilecek = {
         ad: {"x": b["x"], "y": b["y"], "oran": b.get("oran", A.BOLGE_ZOOM_ORANI_VARSAYILAN)}

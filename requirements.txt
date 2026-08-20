@@ -1,6 +1,10 @@
 l2cs==0.0.1
 mediapipe==1.0.0
 numpy==2.5.2
+onnxruntime
 opencv_contrib_python==5.0.0.93
 opencv_python==5.0.0.93
+openvino
+sounddevice==0.5.5
 torch==2.11.0+cu128
+uniface

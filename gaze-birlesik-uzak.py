@@ -39,6 +39,11 @@ Kontroller (gaze_birlesik.py ile BUYUK OLCUDE AYNI):
       Istediginiz an tekrar 'z' ile SABIT BOLGE/zoom moduna donebilirsiniz.
   g = GCS motor tepki testi (M2-M5, SEZGISEL - bkz. gorsellik.
       gcs_kol_tepkisini_sinifla docstring'i, KESIN tibbi olcum DEGIL)
+  m = mikrofon->hoparlor CANLI GECISI ac/kapat (BASLANGICTA KAPALI, bkz.
+      ses.py) - ACIKKEN mikrofona konusulan ses ANINDA hoparlorden calinir
+      (yerel interkom). SES sayaci (yatan kisinin ses cikarmasi) bundan
+      BAGIMSIZ calisir - ayarlar.AKTIF_SES=True oldugu surece HER ZAMAN
+      dinlemede, 'm' sadece hoparlore GECISI acar/kapatir.
   q = cikis
 
 SAYAÇLAR gaze_birlesik.py ile AYNI isimlerde (kirpma, sol/sag/yukari/asagi,
@@ -46,6 +51,8 @@ sol_kol/sag_kol, sol_bacak/sag_bacak, sol_parmak/sag_parmak) - SADECE
 VERI KAYNAGI degisti: yuz/el sayaclari artik genis kareden DEGIL, ilgili
 SABIT bolge panelinden besleniyor (bolge tanimlanmadiysa o sayaclar hic
 artmaz, 0'da kalir - genis-aci gorunumde bunun NEDENI ekranda yazar).
+"kafa" (19.08.2026, rotasyon VEYA konum degisikligi) ve "ses" (mikrofon,
+bkz. ses.py) sayaçlari ise SADECE bu dosyada VAR - gaze_birlesik.py'de yok.
 """
 import collections
 import math
@@ -61,6 +68,7 @@ import bolgeler as B
 import gorsellik as G
 import kayit as K
 import modeller as M
+import ses as S
 
 # --- Bolgeleri (nokta_sec.py ile isaretlenmis) yukle -----------------------
 bolgeler = B.bolgeleri_yukle()
@@ -119,6 +127,10 @@ if not A.AKTIF_POSE:
 
 PoseLandmark = mp.tasks.vision.PoseLandmark
 
+S.baslat()
+if not A.AKTIF_SES:
+    print("[bilgi] ayarlar.AKTIF_SES=False - SES sayaci ve mikrofon->hoparlor gecisi calismayacak.")
+
 # --- Kamera --------------------------------------------------------------
 _kayitli_veri_indeksi = None
 if A.BOLGE_NOKTALARI_DOSYASI.exists():
@@ -158,9 +170,10 @@ print(
 sayaclar = {
     "sag": 0, "sol": 0, "yukari": 0, "asagi": 0, "kirpma": 0, "kesit": 0,
     "sol_kol": 0, "sag_kol": 0, "sol_bacak": 0, "sag_bacak": 0,
-    "sol_parmak": 0, "sag_parmak": 0,
+    "sol_parmak": 0, "sag_parmak": 0, "kafa": 0, "ses": 0,
 }
 sayaclar_aktif = False
+S.aktif = sayaclar_aktif  # SES sayaci da diger sayaclarla AYNI 'h' anahtarina baglı (bkz. asagida 'h' tusu)
 ana_kamera_modu = False  # 'z' tusu - True iken SABIT BOLGE/zoom sistemi devre disi, yuz+el DOGRUDAN genis-aci/ana kameradan okunur
 onceki_yatay = "merkez"
 onceki_dikey = "merkez"
@@ -190,6 +203,26 @@ onceki_sol_bacak_hareketli = False
 onceki_sag_bacak_hareketli = False
 sol_bacak_cikis_sayaci = 0
 sag_bacak_cikis_sayaci = 0
+
+# --- KAFA hareketi: YUZ bloklariyla (SABIT BOLGE VE ana kamera - ikisi de
+# ayni anda hic calismadigi icin TEK/paylasilan durum yeterli, bkz.
+# onceki_yatay/onceki_dikey ile AYNI mantik) PAYLASILAN durum -----------
+kafa_hizli_x = kafa_hizli_y = None
+kafa_yavas_x = kafa_yavas_y = None
+onceki_kafa_hareketli = False
+kafa_cikis_sayaci = 0
+kafa_yaw_gecmis_ham = collections.deque(maxlen=2)
+kafa_pitch_gecmis_ham = collections.deque(maxlen=2)
+
+# KAFA KONUMU (oteleme - orn. "kafayi yerden yukari kaldirma", bkz. ayarlar.
+# KAFA_KONUM_HAREKET_ESIK aciklamasi) - yukaridaki (rotasyon) durumundan
+# TAMAMEN BAGIMSIZ, kendi hareket_algila durumu.
+kafa_konum_hizli_x = kafa_konum_hizli_y = None
+kafa_konum_yavas_x = kafa_konum_yavas_y = None
+onceki_kafa_konum_hareketli = False
+kafa_konum_cikis_sayaci = 0
+kafa_konum_x_gecmis_ham = collections.deque(maxlen=2)
+kafa_konum_y_gecmis_ham = collections.deque(maxlen=2)
 
 kilitli_govde_merkez = None
 govde_kayip_kare = 0
@@ -320,12 +353,15 @@ while True:
     _dbg_sag_bacak = "?"
     _dbg_sol_parmak = "?"
     _dbg_sag_parmak = "?"
+    _dbg_kafa = "?"
     # ANA KAMERA modunda ('z') el-govde eslestirmesi icin - bkz. asagidaki
     # ana kamera EL blogu VE gaze_birlesik.py'deki AYNI mantik/aciklama.
     _sol_bilek_gecerli = False
     _sag_bilek_gecerli = False
 
     kare_zaman_damgasi_ms += 33
+
+    sayaclar["ses"] = S.ses_sayaci  # ses.py KENDI (PortAudio) thread'inde sayiyor, burada SADECE HUD icin okunuyor
 
     # =====================================================================
     # GENIS-ACI: govde/kol/bacak (gaze_birlesik.py'deki pose blogu ile
@@ -564,6 +600,20 @@ while True:
                         else:
                             yaw, pitch, roll = 0.0, 0.0, 0.0
 
+                        _yaw_ef = G.medyan_3_yumusat(kafa_yaw_gecmis_ham, yaw)
+                        _pitch_ef = G.medyan_3_yumusat(kafa_pitch_gecmis_ham, pitch)
+                        (kafa_hareketli, kafa_hizli_x, kafa_hizli_y,
+                         kafa_yavas_x, kafa_yavas_y, kafa_cikis_sayaci) = G.hareket_algila(
+                            kafa_hizli_x, kafa_hizli_y, kafa_yavas_x, kafa_yavas_y,
+                            _yaw_ef, _pitch_ef,
+                            onceki_kafa_hareketli, A.KAFA_HAREKET_ESIK,
+                            A.KAFA_HAREKET_HISTEREZIS_ORANI, A.KAFA_HAREKET_HIZLI_ORAN, A.KAFA_HAREKET_YAVAS_ORAN,
+                            kafa_cikis_sayaci, A.KAFA_HAREKET_MIN_CIKIS_KARE,
+                        )
+                        kafa_rot_tetiklendi = kafa_hareketli and not onceki_kafa_hareketli
+                        onceki_kafa_hareketli = kafa_hareketli
+                        _dbg_kafa = math.hypot(kafa_hizli_x - kafa_yavas_x, kafa_hizli_y - kafa_yavas_y)
+
                         sx1, sy1, sx2, sy2 = G.goz_kutusu(landmarks, G.SAG_GOZ_IDX, pw, ph)
                         lx1, ly1, lx2, ly2 = G.goz_kutusu(landmarks, G.SOL_GOZ_IDX, pw, ph)
                         sag_goz = panel[sy1:sy2, sx1:sx2]
@@ -607,6 +657,24 @@ while True:
                             merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
                             uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
 
+                            _konum_x = merkez_x / max(uzunluk, 1.0)
+                            _konum_y = merkez_y / max(uzunluk, 1.0)
+                            _konum_x_ef = G.medyan_3_yumusat(kafa_konum_x_gecmis_ham, _konum_x)
+                            _konum_y_ef = G.medyan_3_yumusat(kafa_konum_y_gecmis_ham, _konum_y)
+                            (kafa_konum_hareketli, kafa_konum_hizli_x, kafa_konum_hizli_y,
+                             kafa_konum_yavas_x, kafa_konum_yavas_y, kafa_konum_cikis_sayaci) = G.hareket_algila(
+                                kafa_konum_hizli_x, kafa_konum_hizli_y, kafa_konum_yavas_x, kafa_konum_yavas_y,
+                                _konum_x_ef, _konum_y_ef,
+                                onceki_kafa_konum_hareketli, A.KAFA_KONUM_HAREKET_ESIK,
+                                A.KAFA_KONUM_HAREKET_HISTEREZIS_ORANI, A.KAFA_KONUM_HAREKET_HIZLI_ORAN,
+                                A.KAFA_KONUM_HAREKET_YAVAS_ORAN, kafa_konum_cikis_sayaci,
+                                A.KAFA_KONUM_HAREKET_MIN_CIKIS_KARE,
+                            )
+                            kafa_konum_tetiklendi = kafa_konum_hareketli and not onceki_kafa_konum_hareketli
+                            onceki_kafa_konum_hareketli = kafa_konum_hareketli
+                            if (kafa_rot_tetiklendi or kafa_konum_tetiklendi) and sayaclar_aktif:
+                                sayaclar["kafa"] += 1
+
                             cizgi_sol_x = int(merkez_x - uzunluk * A.KENAR_MESAFE_YATAY)
                             cizgi_sag_x = int(merkez_x + uzunluk * A.KENAR_MESAFE_YATAY)
                             cizgi_ust_y = int(merkez_y - uzunluk * A.KENAR_MESAFE_UST)
@@ -644,7 +712,7 @@ while True:
 
             cv2.putText(panel, "YUZ", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             cv2.putText(panel, f"KIRPMA:{sayaclar['kirpma']} S:{sayaclar['sol']} G:{sayaclar['sag']} "
-                                f"Y:{sayaclar['yukari']} A:{sayaclar['asagi']}",
+                                f"Y:{sayaclar['yukari']} A:{sayaclar['asagi']} K:{sayaclar['kafa']}",
                         (8, ph - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1)
 
         elif bilgi["tur"] == "el" and bolge_hand is not None and ad in bolge_hand:
@@ -761,6 +829,20 @@ while True:
                         else:
                             yaw, pitch, roll = 0.0, 0.0, 0.0
 
+                        _yaw_ef = G.medyan_3_yumusat(kafa_yaw_gecmis_ham, yaw)
+                        _pitch_ef = G.medyan_3_yumusat(kafa_pitch_gecmis_ham, pitch)
+                        (kafa_hareketli, kafa_hizli_x, kafa_hizli_y,
+                         kafa_yavas_x, kafa_yavas_y, kafa_cikis_sayaci) = G.hareket_algila(
+                            kafa_hizli_x, kafa_hizli_y, kafa_yavas_x, kafa_yavas_y,
+                            _yaw_ef, _pitch_ef,
+                            onceki_kafa_hareketli, A.KAFA_HAREKET_ESIK,
+                            A.KAFA_HAREKET_HISTEREZIS_ORANI, A.KAFA_HAREKET_HIZLI_ORAN, A.KAFA_HAREKET_YAVAS_ORAN,
+                            kafa_cikis_sayaci, A.KAFA_HAREKET_MIN_CIKIS_KARE,
+                        )
+                        kafa_rot_tetiklendi = kafa_hareketli and not onceki_kafa_hareketli
+                        onceki_kafa_hareketli = kafa_hareketli
+                        _dbg_kafa = math.hypot(kafa_hizli_x - kafa_yavas_x, kafa_hizli_y - kafa_yavas_y)
+
                         sx1, sy1, sx2, sy2 = G.goz_kutusu(landmarks, G.SAG_GOZ_IDX, w, h)
                         lx1, ly1, lx2, ly2 = G.goz_kutusu(landmarks, G.SOL_GOZ_IDX, w, h)
                         sag_goz = kare_ham[sy1:sy2, sx1:sx2]
@@ -803,6 +885,24 @@ while True:
                             merkez_x = yumusak_merkez_x = G.yumusat(yumusak_merkez_x, merkez_x)
                             merkez_y = yumusak_merkez_y = G.yumusat(yumusak_merkez_y, merkez_y)
                             uzunluk = yumusak_uzunluk = G.yumusat(yumusak_uzunluk, uzunluk)
+
+                            _konum_x = merkez_x / max(uzunluk, 1.0)
+                            _konum_y = merkez_y / max(uzunluk, 1.0)
+                            _konum_x_ef = G.medyan_3_yumusat(kafa_konum_x_gecmis_ham, _konum_x)
+                            _konum_y_ef = G.medyan_3_yumusat(kafa_konum_y_gecmis_ham, _konum_y)
+                            (kafa_konum_hareketli, kafa_konum_hizli_x, kafa_konum_hizli_y,
+                             kafa_konum_yavas_x, kafa_konum_yavas_y, kafa_konum_cikis_sayaci) = G.hareket_algila(
+                                kafa_konum_hizli_x, kafa_konum_hizli_y, kafa_konum_yavas_x, kafa_konum_yavas_y,
+                                _konum_x_ef, _konum_y_ef,
+                                onceki_kafa_konum_hareketli, A.KAFA_KONUM_HAREKET_ESIK,
+                                A.KAFA_KONUM_HAREKET_HISTEREZIS_ORANI, A.KAFA_KONUM_HAREKET_HIZLI_ORAN,
+                                A.KAFA_KONUM_HAREKET_YAVAS_ORAN, kafa_konum_cikis_sayaci,
+                                A.KAFA_KONUM_HAREKET_MIN_CIKIS_KARE,
+                            )
+                            kafa_konum_tetiklendi = kafa_konum_hareketli and not onceki_kafa_konum_hareketli
+                            onceki_kafa_konum_hareketli = kafa_konum_hareketli
+                            if (kafa_rot_tetiklendi or kafa_konum_tetiklendi) and sayaclar_aktif:
+                                sayaclar["kafa"] += 1
 
                             cizgi_sol_x = int(merkez_x - uzunluk * A.KENAR_MESAFE_YATAY)
                             cizgi_sag_x = int(merkez_x + uzunluk * A.KENAR_MESAFE_YATAY)
@@ -958,13 +1058,14 @@ while True:
     # --- Genis-aci pencereye SAYAÇLAR/kontroller yaz ------------------------
     cv2.putText(kare, f"KIRPMA: {sayaclar['kirpma']}   KESIT: {sayaclar['kesit']}",
                 (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
-    cv2.putText(kare, f"SOL: {sayaclar['sol']}  SAG: {sayaclar['sag']}  YUKARI: {sayaclar['yukari']}  ASAGI: {sayaclar['asagi']}",
+    cv2.putText(kare, f"SOL: {sayaclar['sol']}  SAG: {sayaclar['sag']}  YUKARI: {sayaclar['yukari']}  ASAGI: {sayaclar['asagi']}  KAFA: {sayaclar['kafa']}",
                 (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
     cv2.putText(kare, f"SOL KOL: {sayaclar['sol_kol']}   SAG KOL: {sayaclar['sag_kol']}",
                 (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(kare, f"SOL BACAK: {sayaclar['sol_bacak']}   SAG BACAK: {sayaclar['sag_bacak']}",
                 (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-    cv2.putText(kare, f"SOL PARMAK: {sayaclar['sol_parmak']}   SAG PARMAK: {sayaclar['sag_parmak']}",
+    cv2.putText(kare, f"SOL PARMAK: {sayaclar['sol_parmak']}   SAG PARMAK: {sayaclar['sag_parmak']}   "
+                       f"SES: {sayaclar['ses']} (mikrofon gecisi {'ACIK' if S.passthrough_durumu() else 'KAPALI'}, m)",
                 (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(kare, f"SAYAÇLAR: {'AKTIF' if sayaclar_aktif else 'DURAKLATILDI'} (h)",
                 (20, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
@@ -992,7 +1093,9 @@ while True:
     cv2.putText(
         kare,
         f"TANI KOL sol:{_dbg_fmt(_dbg_sol_kol)} sag:{_dbg_fmt(_dbg_sag_kol)} (esik {A.KOL_HAREKET_GORELI_ESIK:.2f})  "
-        f"BACAK sol:{_dbg_fmt(_dbg_sol_bacak)} sag:{_dbg_fmt(_dbg_sag_bacak)} (esik {A.BACAK_HAREKET_GORELI_ESIK:.2f})",
+        f"BACAK sol:{_dbg_fmt(_dbg_sol_bacak)} sag:{_dbg_fmt(_dbg_sag_bacak)} (esik {A.BACAK_HAREKET_GORELI_ESIK:.2f})  "
+        f"KAFA:{_dbg_fmt(_dbg_kafa)} (esik {A.KAFA_HAREKET_ESIK:.2f})  "
+        f"SES giris:{S.son_giris_rms:.3f} cikis:{S.son_cikis_rms:.3f} (esik {A.SES_ALGILAMA_ESIK:.2f})",
         (20, 238), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1,
     )
     if ana_kamera_modu:
@@ -1003,7 +1106,7 @@ while True:
             (20, 258), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1,
         )
     cv2.putText(kare, "c: kalibre  |  r: kesit al  |  v: video kaydi (genis+bolgeler)  |  h: sayac ac/kapat  |  "
-                      "z: ana kamera modu ac/kapat  |  g: GCS testi  |  q: cikis",
+                      "m: mikrofon gecisi  |  z: ana kamera modu ac/kapat  |  g: GCS testi  |  q: cikis",
                 (20, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
 
     if kaydedici.kayit_yapiliyor:
@@ -1068,7 +1171,11 @@ while True:
             bolge_kaydedici.bitir()
     if tus == ord("h"):
         sayaclar_aktif = not sayaclar_aktif
+        S.aktif = sayaclar_aktif
         print(f"Sayaçlar {'AKTIF' if sayaclar_aktif else 'DURAKLATILDI'}.")
+    if tus == ord("m"):
+        _passthrough_simdi = S.passthrough_ac_kapat()
+        print(f"Mikrofon->hoparlor gecisi {'AKTIF' if _passthrough_simdi else 'KAPALI'}.")
     if tus == ord("z"):
         ana_kamera_modu = not ana_kamera_modu
         if ana_kamera_modu:
@@ -1091,6 +1198,7 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+S.durdur()
 if pose_landmarker is not None:
     pose_landmarker.close()
 if bolge_face is not None:

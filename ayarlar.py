@@ -22,6 +22,7 @@ BURASI = Path(__file__).resolve().parent
 AKTIF_GAZE = True
 AKTIF_POSE = True
 AKTIF_EL = True
+AKTIF_SES = True  
 
 # --- Kimlik kilidi (tek kisiye odaklanma) --------------------------------
 # Ekrana ilk giren kisi "kilitlenir" - sonradan giren baska biri ne kadar
@@ -68,30 +69,7 @@ BAKIS_OLAY_KESITI_AKTIF = False
 # "yavas hareketi hic yakalayamama" sorunlarina yol acmisti, gercek videoyla
 # dogrulandi). Ayak bilegi secildi (bkz. proje karari) - battaniye/carsaf
 # altinda bile genelde ayak ucundan daha guvenilir gorunur kalir.
-#
-# YOGUN BAKIM SENARYOSU: hastanin bacaginda olusan HERHANGI bir hareketin
-# (kucuk/kismi olsa bile) ATLANMAMASI, gec algilanmaktan cok daha onemli -
-# bu yuzden asagidaki degerler bilincli olarak DUYARLILIK (recall) lehine,
-# yanlis-pozitif (gereksiz sayim/klip) riskini goze alarak ayarlandi. 30
-# gurultu senaryosu x 300 karelik simulasyonla dogrulandi: normal landmark
-# titremesinde (~0.008-0.01 genlik) pratikte yanlis pozitif yok denecek kadar
-# az (9000 karede ~5), gercek bir hareket (ani sicrama VEYA yavas gecis) 1-8
-# kare (bir kac yuzde saniye) icinde yakalaniyor.
-#
-# GERI ALINDI (0.018 -> 0.035): telefon kamerasiyla (dusuk isik, farkli/daha
-# gurultulu goruntu, daha dusuk fps) gercek testte esik=0.018 SAATLERCE
-# HAREKETSIZ dururken bile SOL/SAG BACAK'i durmadan artiriyordu (gercek
-# kullanici videosuyla dogrulandi - kisi hic kipirdamiyor ama sayaç
-# artiyordu). Simulasyonla olculdu: 0.018 esikte, landmark titremesi
-# 0.02 genlige ciktiginda (bu kameranin/isik seviyesinin urettigi gibi
-# gorunuyor) 4500 karenin ~4300'unde yanlis-pozitif olusuyordu (%96!).
-# esik=0.035 + hizli_oran=0.6 (eskiden 0.75) ile ayni testte 0.02 genlikte
-# yanlis pozitif SIFIR, 0.025 genlikte bile cok az (~%1.6) cikti - gercek
-# hareketleri (5cm+ hareket) hala 1-8 kare icinde yakaliyor. NOT: bu, "kolu
-# bacak saniyor" seklinde YANLIS ANLASILABILIR - aslinda KOL VE BACAK
-# BIRBIRINDEN BAGIMSIZ calisiyor (kod kontrol edildi, capraz baglanti YOK),
-# sadece HER IKISI DE bu kamerada/isikta bagimsiz olarak surekli yanlis
-# pozitif uretiyordu, kol oynatilinca TESADUFEN ayni ana denk geliyordu.
+
 BACAK_HAREKET_ESIK = 0.035            # normalize (0..1) - HIZLI/YAVAS EMA farki bu kadar olunca "hareket" baslar
 BACAK_HAREKET_HISTEREZIS_ORANI = 0.55 # cikis esigi = ESIK * bu oran
 BACAK_HAREKET_HIZLI_ORAN = 0.6        # HIZLI EMA'nin HAM konuma yaklasma hizi - dusuruldu (0.75->0.6), tek-kare gurultusune daha az duyarli olsun diye
@@ -109,75 +87,27 @@ BACAK_HAREKET_MIN_CIKIS_KARE = 8
 
 # False yaparsan ilgili gorsel EKRANDA CIZILMEZ ama tespit (ve dolayisiyla
 # ilgili sayaclar/kalibrasyon) YINE DE CALISIR - sadece gorsel gizlenir.
-GOVDE_CIZIMI_GOSTER = False
+GOVDE_CIZIMI_GOSTER = True
 EL_CIZIMI_GOSTER = True
 YUZ_CIZIMI_GOSTER = True
 
 # FaceLandmarker'in yuzu "yuz" olarak kabul etmesi icin gereken minimum
-# guven skoru (0-1). Varsayilan MediaPipe degeri 0.5'tir, biz zaten 0.3'e
-# indirmistik. TEPEDEN/DIREK KAMERA gibi asiri acili kurulumlarda (yuz
+# guven skoru (0-1). Varsayilan MediaPipe degeri 0.5'tir. TEPEDEN/DIREK KAMERA gibi asiri acili kurulumlarda (yuz
 # normalden COK farkli/sikismis gorunuyor) bunu daha da dusurmek tespiti
 # kolaylastirir - ama COK dusurursen yuz OLMAYAN seyleri de "yuz" sanma
 # riski artar (yanlis pozitif). 0.1-0.15 arasi genelde makul bir sinir.
-YUZ_TESPIT_ESIK = 0.15
+
+YUZ_TESPIT_ESIK = 0.08
 
 # HandLandmarker'in bir bolgeyi/kareyi "el" olarak kabul etmesi icin gereken
 # minimum guven skoru (0-1, hem tespit HEM izleme/tracking icin - bkz.
 # modeller.py'de nerede kullanildigi). Varsayilan MediaPipe degeri 0.5'tir.
-#
-# GECMISI: ilk once (video_bolgeler_19_08_2026_08_41_57.mp4'te GOZLENEN
-# sorun - SABIT bolge/zoom modunda el kirpilan bolgeden CIKTIGINDA
-# HandLandmarker'in o kucuk/dokulu -orn. pantolon kumasi- alanda GERCEK
-# OLMAYAN bir el "gorup" PARMAK sayaclarini yanlis artirmasi) bu esik 0.6'ya
-# YUKSELTILMISTI. AMA asil kok neden BASKAYMIS: modeller.bolge_landmarklarini_yukle
-# sol_el VE sag_el icin TEK bir HandLandmarker PAYLASTIRIYORDU - HER karede
-# once sol_el kirpintisi sonra sag_el kirpintisi AYNI instance'a verildigi
-# icin, VIDEO modunun "onceki karenin ROI'sini izleme" mekanizmasi BIR ELIN
-# ROI'sini DIGERININ "onceki karesi" saniyor, bu da GERCEK bir eli bile
-# "bir goruyor bir kaybediyor" (titrek/kararsiz tespit) sonucuna yol
-# aciyordu (kullanici geri bildirimi: "sol eli bir algiliyor bir
-# algilamiyor, sag eli de cok az algiladi") - o instance-paylasimi HATASI
-# 19.08.2026'da giderildi (bkz. modeller.bolge_landmarklarini_yukle
-# el_bolge_adlari parametresi - artik HER bolge KENDI/AYRI landmarker'ini
-# kullanir). Bu duzeltmeden SONRA, video_19_08_2026_09_20_32.mp4 (gercek
-# kullanici kaydi) uzerinde offline bir deneyle ({shared,separate} x
-# {0.3,0.4,0.5,0.6} esik) olculdu: PAYLASIMLI+0.6 (eski durum) elin
-# GERCEKTEN kadrajda oldugu pencerede sol_el icin sadece %19, sag_el icin
-# %6 tespit veriyordu; AYRI-instance+0.6 (sadece bu duzeltmeyle) sol_el
-# %54 sag_el %7'ye cikti (sag_el HALA kotu, cunku 0.6 artik GEREKENDEN
-# yuksek - onceki yukseltmenin nedeni olan sorun zaten instance-paylasimi
-# duzeltmesiyle cozuldu); AYRI-instance+0.3 sol_el %90 sag_el %53'e cikti -
-# bu yuzden esik 0.3'e GERI cekildi (aynı deneyde bu deger BOS/yanlis
-# bolgelerde de dusuk bir yanlis-pozitif orani -%5-8- veriyordu, kabul
-# edilebilir bulundu cunku PARMAK sayaclarinda ayrica bir GRUP-seviyesi
-# refractory guvenligi de var, bkz. gaze_birlesik_uzak.py
-# bolge_grup_son_tetik).
-#
-# NOT (cozulmemis, kod DEGIL kamera/kurulum sorunu): sag_el bu testte HATTA
-# EN IYI ayarla bile sol_el'den COK daha kotu (%53 vs %90) - crop'a bakildiginda
-# el butun sure boyunca ACIKCA/durgun gorunur durumdayken bile. Muhtemel
-# neden: 640x480 kaynak kamerada 7x (oran) dijital yakinlastirma cok kucuk
-# bir kaynak-piksel alanini (~91x68px) 320x320'ye gerdigi icin goruntu
-# BULANIK kaliyor - bu, kodla degil ya YUKSEK COZUNURLUKLU bir kamerayla
-# ya da sag_el'in "oran" degerini (zoom_noktalari.json) dusurup el biraz
-# daha genis/az-yakinlastirilmis kirpilarak iyilestirilebilir.
+
 EL_TESPIT_ESIK = 0.3
 
-# DIJITAL YAKINLASTIRMA: kare kirpilip eski boyutuna geri buyutulur - yuz
-# kucuk/uzakta kaliyorsa (orn. direk/tepeden kamera) bunu artirmak
-# MediaPipe'e daha buyuk/net bir yuz verir, tespiti kolaylastirir. 1.0 =
-# yakinlastirma YOK (tam goruntu). 2.0 = YARISI (genislik VE yukseklikte)
-# alinip tam kareye buyutulur - yani goruntu alani (FOV) 4'te bire duser.
-#
-# TAKIP EDEN yakinlastirma (bkz. gorsellik.takip_yakinlastir, uc birlesik
-# dosyada da kullaniliyor): kirpma alani ARTIK SABIT merkezde degil, kilitli
-# kisinin SON bilinen konumu etrafinda - kisi kadrajda nereye giderse
-# gitsin (merkezde olmasa bile) yakinlastirilmis/detayli goruntude kalir.
-# Kisi hic bulunamadigi/kaybedildigi surece (henuz kilit yok VEYA kimlik
-# kilidi tamamen birakildi) yakinlastirma OTOMATIK olarak 1x'e (TAM
-# GORUNTU, hic kirpma yok) doner - boylece sistem kisiyi ARAMAK icin dar/
-# yakinlastirilmis bir alana degil, kameranin gordugu HER SEYE bakar.
-# Kilitlenir kilitlenmez asagidaki oran devreye girer.
+EL_IZLEME_ESIK = 0.6
+
+
 DIJITAL_YAKINLASTIRMA = 1.0
 
 # --- Kamera --------------------------------------------------------------
@@ -269,20 +199,8 @@ ESIK_BAKIS_XY = 0.10
 BAKIS_ASAGI_SIZINTI_K = 0.87  # sadece gy<0 iken gx'ten cikarilir
 BAKIS_YANAL_SIZINTI_K = 0.46  # her zaman |gx| ile orantili, gy'e eklenir
 
-# ESKI (ARTIK KULLANILMIYOR - bkz. asagidaki KOL_HAREKET_* ve proje gecmisi):
-# "kol kalkik mi" YONE OZGU kontrolu icin gorsellik.kol_aktif_mi hala
-# TANIMLI (referans/geriye-uyum icin, dijital_yakinlastir gibi) ama artik
-# HICBIR birlesik dosya bunu CAGIRMIYOR - SIRTUSTU YATAN bir hastada kol
-# govde uzerinde/yana dogru hareket ederken bilek omuzden "yukari kalkmadigi"
-# icin bu yontem gercek kol hareketlerinin COGUNU KACIRIYORDU (gercek
-# videoyla dogrulandi - ayni sorunun bacakta da yasandigi, "yatarken bacak
-# kaldiramama" gerekcesiyle daha once BACAK icin coz ulmustu, simdi KOL da
-# AYNI coz ume tasindi).
-KOL_Y_ESIK = 0.08       # bilek-omuz y farki bu degerden KUCUKSE "ayni hizada" sayilir
-DIRSEK_ACI_ESIK = 90.0  # derece - dirsek acisi bu degerin ALTINDAYSA kol "kivrik" sayilir
-KOL_HISTEREZIS_Y = 0.04
-KOL_HISTEREZIS_ACI = 15.0
-KOL_MIN_CIKIS_KARE = 8
+
+
 
 # --- YENI: Kol hareketi (bkz. gorsellik.hareket_algila) -------------------
 # BACAK_HAREKET_* ile TAM AYNI mantik/parametreler, ayni fonksiyon - "kol
@@ -290,13 +208,7 @@ KOL_MIN_CIKIS_KARE = 8
 # yone dogru (ani sicrama VEYA yavas/surekli hareket) yeterince buyuk bir
 # degisikligi "hareket" sayar. Boylece hasta SIRTUSTU yatip kolunu govdesi
 # uzerinde/yana dogru hareket ettirse bile (bilek hicbir zaman omuzden
-# "yukari kalkmasa" bile) yakalanir - gercek kullanici videosuyla dogrulandi
-# (eski yone-ozgu yontem bu senaryoda kol hareketlerinin COGUNU kaciriyordu).
-# GERI ALINDI - BACAK_HAREKET_ESIK ile AYNI gerekce (bkz. yukarisi): telefon
-# kamerasiyla dusuk isikta 0.018 hareketsizken bile surekli yanlis pozitif
-# uretiyordu (KOL VE BACAK BAGIMSIZ calisiyor - bkz. BACAK_HAREKET_ESIK
-# aciklamasi, "kol bacagi karistiriyor" gibi gorunen sey aslinda ikisinin de
-# ayni kamerada bagimsiz olarak asiri duyarli olmasiydi).
+# "yukari kalkmasa" bile) yakalanir.
 KOL_HAREKET_ESIK = 0.035
 KOL_HAREKET_HISTEREZIS_ORANI = 0.55
 KOL_HAREKET_HIZLI_ORAN = 0.6
@@ -307,28 +219,7 @@ KOL_HAREKET_MIN_CIKIS_KARE = 8
 # !!! ESKI YONTEMIN (yukaridaki KOL_HAREKET_*/BACAK_HAREKET_*, MUTLAK/kare-
 # ici konum kullanan) YERINE gaze_birlesik.py'de KULLANILIYOR - l2cs_birlesik.py
 # ve uniface_birlesik.py HALA eski yontemi kullaniyor, onlara dokunulmadi. !!!
-#
-# SORUN: MUTLAK konum kullanildiginda, kol VE bacak sayaçlari KOD OLARAK
-# birbirinden bagimsiz olsa bile, govde/yatak/kamera EN UFAK sekilde
-# kaydiginda (orn. kolunu guclu oynatan bir hastanin govdesi hafifce
-# yaslaniyor/kayiyor, ya da telefon kamerasi titriyor) TUM landmarklar
-# (bilek DE ayak bilegi DE) AYNI YONDE kayiyor - "kolu oynatinca bacak
-# sayaci da artiyor, bacagi oynatinca kol sayaci da artiyor" seklinde
-# CAPRAZ yanlis tetiklenmeye yol aciyordu (gercek kullanici geri
-# bildirimiyle bulundu).
-#
-# COZUM: bkz. gorsellik.govdeye_goreli_konum - bilek/ayak bilegi, MUTLAK
-# konumu yerine AYNI TARAF omuz/kalcaya GORE, govde olcegine (omuz
-# genisligi) BOLUNMUS konumuyla izleniyor. Govde-geneli kaymalar boylece
-# MATEMATIKSEL OLARAK iptal olur (hem uzuv hem referans ayni miktarda
-# kayar, aralarindaki fark degismez) - SADECE uzvun govdeye GORE gercekten
-# hareket etmesi sinyal uretir. 4 senaryoyla (govde kaymasi TEK BASINA,
-# sadece kol hareketi, sadece bacak hareketi, kol hareketi+govde kaymasi
-# BIRLIKTE - ASIL SORUN SENARYOSU) simulasyonla dogrulandi: hepsinde
-# BEKLENEN sayaç (ve SADECE o sayaç) artti, capraz tetiklenme SIFIRA
-# indi. Ayni gurultu/titreme/debounce testleri de tekrarlandi (bkz.
-# hareket_algila docstring'i) - ayni saglamlik korunuyor.
-#
+
 # Ayni fonksiyon (hareket_algila) kullaniliyor, sadece x,y girdisi MUTLAK
 # konum yerine bu goreli/olceklendirilmis konum - esik degerleri de buna
 # gore YENIDEN kalibre edildi (birim artik "govde olcegi", 0.22 ~= omuz
@@ -339,6 +230,20 @@ KOL_HAREKET_GORELI_HIZLI_ORAN = 0.6
 KOL_HAREKET_GORELI_YAVAS_ORAN = 0.035
 KOL_HAREKET_GORELI_MIN_CIKIS_KARE = 8
 
+
+KAFA_HAREKET_ESIK = 10.0
+KAFA_HAREKET_HISTEREZIS_ORANI = 0.8
+KAFA_HAREKET_HIZLI_ORAN = 0.6
+KAFA_HAREKET_YAVAS_ORAN = 0.035
+KAFA_HAREKET_MIN_CIKIS_KARE = 4
+
+
+KAFA_KONUM_HAREKET_ESIK = 0.20
+KAFA_KONUM_HAREKET_HISTEREZIS_ORANI = 0.8
+KAFA_KONUM_HAREKET_HIZLI_ORAN = 0.6
+KAFA_KONUM_HAREKET_YAVAS_ORAN = 0.035
+KAFA_KONUM_HAREKET_MIN_CIKIS_KARE = 4
+
 BACAK_HAREKET_GORELI_ESIK = 0.22
 BACAK_HAREKET_GORELI_HISTEREZIS_ORANI = 0.55
 BACAK_HAREKET_GORELI_HIZLI_ORAN = 0.6
@@ -348,33 +253,12 @@ BACAK_HAREKET_GORELI_MIN_CIKIS_KARE = 8
 # --- GOVDE OLCEGI YUMUSATMA (bkz. gorsellik.govde_olcek_hesapla) ----------
 # SORUN (gercek kullanici videosuyla bulundu, 17.08.2026): govde_olcek SADECE
 # omuzlardan (2 nokta) hesaplaniyor ve KOL + BACAK'IN DORDU DE (sol/sag)
-# AYNI govde_olcek'e BOLUNUYOR (bkz. govdeye_goreli_konum). Omuz landmark'i
-# TEK bir karede (hareket bulanikligi/kisa sureli hatali tahmin gibi
-# nedenlerle) HAM/gurultulu cikinca govde_olcek ANLIK KUCULUYOR - bu da
-# PAYDA ortak oldugu icin KOL SOL + KOL SAG + BACAK SOL + BACAK SAG
-# mesafelerinin HEPSININ AYNI ANDA (gercek hicbir uzuv hareket etmemisken
-# bile) esigin COK UZERINE FIRLAMASINA yol aciyordu - kullaniciya "kolumu
-# oynatinca bacak sayiyor, bacagi oynatinca kol sayiyor" gibi bir CAPRAZ
-# tetiklenme YANILSAMASI olarak gorunuyor, ama aslinda kol/bacak degiskenleri
-# KARISMIYOR - ikisi de ayni (o an gurultulu) ORTAK PAYDAYI paylastigi icin
-# BIRLIKTE sicriyorlar. COZUM: govde_olcek'i (diger noktalar gibi) EMA ile
-# yumusat + tek karedeki degisimi sinirla (bkz. gorsellik.yumusat) - boylece
-# tek bir gurultulu omuz karesi ANINDA payda'yi carpitip DORT sayaci BIRDEN
-# yanlis tetiklemez.
+# AYNI govde_olcek'e BOLUNUYOR (bkz. govdeye_goreli_konum).
 GOVDE_OLCEK_YUMUSATMA_ORANI = 0.2
 GOVDE_OLCEK_MAKS_SICRAMA = 0.02  # tek karede govde_olcek'in degisebilecegi AZAMI miktar
 
-# EK KORUMA (17.08.2026, ikinci bulgu): kolu YANA kaldirinca dogru sayiliyor
-# ama YUKARI (govdeden kalkip KAMERAYA DOGRU / tepeye dogru) kaldirinca BACAK
-# sayaci artiyordu. Sebep: bu hareket omuz/bilek landmark'ini TEK kareden
-# COK DAHA UZUN (defalarca kare, ~yarim-bir saniye) SURELI bozuyor - kamera
-# TAM TEPEDEN baktigi icin "kol dogrudan kameraya/tavana dogru kalkmasi" bu
-# modelin egitim dagiliminda neredeyse hic yok, MediaPipe bu poz icin
-# gerceκci olmayan/oynak bir tahmin verebiliyor. Yukaridaki MAKS_SICRAMA
-# (tek karelik sinir) boyle UZUN SURELI bir bozulmaya karsi yetersiz kaliyor
-# (adim adim BIRIKEREK yine de gercek degerden uzaklasabiliyor). Bu yuzden
-# AYRICA bir "makul aralik disi ise bu okumayi TAMAMEN YOKSAY (hic
-# harmanlama, hic adim atma)" filtresi eklendi - bkz. gaze_birlesik.py.
+
+
 GOVDE_OLCEK_KABUL_MIN_ORAN = 0.6  # ham okuma, yumusatilmisin bu oranindan KUCUKSE yoksay
 GOVDE_OLCEK_KABUL_MAKS_ORAN = 1.6  # ham okuma, yumusatilmisin bu oranindan BUYUKSE yoksay
 
@@ -383,131 +267,29 @@ GOVDE_OLCEK_KABUL_MAKS_ORAN = 1.6  # ham okuma, yumusatilmisin bu oranindan BUYU
 # hareketinden BAGIMSIZ, ince motor tepkisi) yakalamak - orn. "eli tut, elini
 # sik" gibi bir emre parmak duzeyinde tepki var mi diye.
 #
-# TASARIM (kol/bacak'taki AYNI derslerle): 5 parmak ucunun (basparmak,
-# isaret, orta, yuzuk, serce) ORTALAMA konumu, o ELIN KENDI BILEGINE GORE
-# (govdeye_goreli_konum ile AYNI fonksiyon, burada "govde" yerine "el" icin
-# kullaniliyor - matematiksel olarak birebir ayni islem) ve el buyuklugune
-# (bilek-orta parmak kok mesafesi) OLCEKLENEREK izlenir. BOYLECE:
-#   - Kol/govde hareketinden BAGIMSIZDIR (bilege GORE oldugu icin kolu
-#     oynatmak parmak sayacini ARTIRMAZ - kol/bacak'ta yasanan CAPRAZ
-#     tetiklenme dersi buraya da uygulandi).
-#   - Kisinin kameraya uzakligindan BAGIMSIZDIR (el buyuklugune bolundugu
-#     icin).
-# HandLandmarker'in kendi Sol/Sag (handedness) etiketine GUVENILMIYOR (pose
-# icin ekran_sol_sag_ayikla'da bulunan AYNI sorun burada da olasi) - bkz.
-# gaze_birlesik.py'deki el-govde eslestirme mantigi.
-#
-# TEK PARMAK DUYARLILIGI (17.08.2026 eklendi): ilk tasarimda 5 parmak
-# ucunun ORTALAMASI tek bir sinyale indirgeniyordu - SADECE BIR parmak
-# oynadiginda bu hareket ortalamaya girip 1/5'e "sulanip" esigin altinda
-# kalabiliyordu (kullanicinin acik istegi: "parmaklardan biri bile hafif
-# oynayinca algilayabilelim"). COZUM: artik HER PARMAK UCU KENDI BAGIMSIZ
-# durumuyla AYRI AYRI izleniyor (bkz. gaze_birlesik.py parmak_durum), el
-# HERHANGI BIR ucun esigi GECMESIYLE "hareketli" sayilir (5'in OR'u,
-# ortalamasi DEGIL).
-#
-# "ASAGI INIP TEKRAR KALKMASINA GEREK YOK" (17.08.2026, ikinci istek):
-# yukaridaki hareket_algila (KOL/BACAK'ta kullanilan, iki-EMA HIZLI/YAVAS
-# farki) parmak icin YANLIS ARAC oldugu ortaya cikti - o fonksiyon "hareketli"
-# durumdan cikip YENIDEN tetiklenebilmek icin mesafenin cikis esiginin
-# ALTINA DUSMESINI sart kosuyor. El HAVADA/kalkik TUTULURKEN (govdeye/bilege
-# GORE "yeni" bir taban konumda) art arda gelen KUCUK ek kipirdanmalar bu
-# YAVAS EMA'nin o yeni tabana dogru surunmesi yuzunden esigi bir daha HIC
-# GECEMEYEBILIYORDU (simulasyonla dogrulandi: varsayilan ayarlarla el kalkik
-# tutulurken sadece ILK kalkis sayiliyor, sonraki 7 ayri hafif kipirdanmanin
-# HICBIRI sayilmiyordu). COZUM: parmak icin FARKLI bir teknige gecildi - bkz.
-# gorsellik.parmak_hareket_algila. Bu fonksiyon "yavas referansa GORE mesafe"
-# yerine "yumusatilmis konumun KENDI ANLIK degisim HIZINA" bakar - bu deger
-# hareket duruncа birkac karede SIFIRA doner (asagi inmesi/eski konuma
-# donmesi GEREKMEZ), sadece KISA bir yeniden-tetiklenme bekleme suresi
-# (PARMAK_YENIDEN_TETIK_MIN_KARE) vardir. 250 karelik bir simulasyonla
-# dogrulandi: el kalkik tutulurken 7 ayri hafif kipirdanmanin HEPSI ayri ayri
-# yakalaniyor (once: sadece 1/8), parmaklar TAMAMEN sabitken (80 senaryo x
-# 300 kare, gercekci landmark titremesi) SIFIR yanlis pozitif.
-# MUTLAK OLCEGE GORE KALIBRE EDILDI (18.08.2026) - asagidaki "MUTLAK KONUM"
-# aciklamasina bkz. Sentetik testle (21 landmark, bagimsiz gercekci gurultu +
-# kademeli parmak hareketi) tarandi: ESIK=0.01 gurultu>=0.008'de yanlis
-# pozitif vermeye basliyor (jitter=0.01'de 21, 0.012'de 50 yanlis tetik),
-# ESIK=0.015 ise gurultu 0.01'e kadar SIFIR yanlis pozitif verirken 0.03
-# buyuklugunde (ve cogu zaman 0.02 buyuklugunde) gercek hareketi hala
-# yakaliyor - bu yuzden daha fazla gurultu payi icin 0.015 secildi.
+
 PARMAK_HIZ_ESIK = 0.015       # ardisik iki karedeki (yumusatilmis) konum degisimi bu kadar olursa "hareket" (panel genisligi/yuksekliginin orani, 0..1)
 
-# gaze_birlesik.py (yakin/webcam) VE gaze_birlesik_uzak.py'nin YENI "ana
-# kamera modu" ('z' tusu, 19.08.2026 eklendi) icin AYRI esik: bu ikisi
-# parmak ucu konumunu govdeye_goreli_konum ile BILEGE GORE ve EL BUYUKLUGUNE
-# OLCEKLENMIS olarak izler (yukaridaki PARMAK_HIZ_ESIK'in kullandigi
-# "panel-ici MUTLAK konum" ile AYNI OLCEK DEGIL - bilek-goreli/olcekli
-# degerler cok daha BUYUK araliklarda hareket eder, orn. bir parmagin tam
-# acilip kapanmasi el buyuklugune gore 0.1-0.5 arasi bir degisim uretebilir).
-# ONEMLI: bu iki sabiti KARISTIRMA - PARMAK_HIZ_ESIK'i buraya (ya da tam
-# tersini) verirsen ya asiri hassas (surekli yanlis sayim) ya da asiri
-# duyarsiz (gercek hareketi kacirir) sonuc alirsin.
+
 PARMAK_HIZ_ESIK_GORELI = 0.06
 PARMAK_HIZ_HIZLI_ORAN = 0.6      # yumusatma orani (konumun HAM veriyi ne kadar yakindan takip ettigi)
 PARMAK_YENIDEN_TETIK_MIN_KARE = 6  # iki ayri tetiklenme arasi ARKA ARKAYA en az kac kare gecmeli (debounce DEGIL, kisa bir refractory sure)
 
 EL_OLCEK_MIN = 0.01  # govde_olcek_hesapla'daki min_olcek tabani (el, omuzdan COK KUCUK oldugu icin ayri/daha kucuk bir taban)
 
-# --- EL OLCEGI YUMUSATMA (19.08.2026, gercek kullanici videosuyla bulundu:
-# video_19_08_2026_00_25_44.mp4) - GOVDE_OLCEK_* ile TAMAMEN AYNI sorun
-# sinifi (bkz. yukaridaki GOVDE_OLCEK_YUMUSATMA_ORANI aciklamasi), sadece
-# EL icin: el_olcegi (bilek - orta parmak kok mesafesi) HER 5 parmagin
-# PAYDASI - tek bir karede kucuk cikinca 5 parmagin TUMU (parmaklar
-# GERCEKTE hareketsizken bile) esigin uzerine FIRLIYOR.
-# SORUN NASIL ORTAYA CIKTI: el KAMERAYA DUZ (avuc/sirt tam karsiya)
-# durmayip YANDAN/PROFILDEN gorununce (orn. "karate darbesi" pozisyonu,
-# ya da elin DIS/arka yuzu kameraya donukken govde de hafif donuk olursa)
-# bilek-orta parmak kok arasi EKRANDAKI izdusum mesafesi KISALIR (kisaltma/
-# foreshortening) - el_olcegi HER KAREDE yeniden, YUMUSATMASIZ hesaplandigi
-# icin bu kisalma ANINDA payda'yi kucultup, elin GERCEKTE durdugu bir sahnede
-# bile parmak sayacinin surekli/duzenli araliklarla artmasina yol aciyordu
-# (video kaniti: el gozle SABIT dururken sayac ~saniyede bir artiyordu).
-# COZUM: govde_olcek ile AYNI teknik - el_olcegi'ni (per el/taraf BAGIMSIZ)
-# EMA ile yumusat + tek karedeki degisimi sinirla + makul aralik disi
-# okumalari TAMAMEN yoksay.
+
 EL_OLCEK_YUMUSATMA_ORANI = 0.25
 EL_OLCEK_MAKS_SICRAMA = 0.01     # tek karede el_olcegi'nin degisebilecegi AZAMI miktar
 EL_OLCEK_KABUL_MIN_ORAN = 0.6    # ham okuma, yumusatilmisin bu oranindan KUCUKSE yoksay
 EL_OLCEK_KABUL_MAKS_ORAN = 1.6   # ham okuma, yumusatilmisin bu oranindan BUYUKSE yoksay
 
-# Bir eldeki tek bilek, HANGI govde tarafina (sol_bilek/sag_bilek, POSE'dan)
-# ait sayilsin diye eslestirilirken izin verilen AZAMI ekran mesafesi
-# (normalize, 0..1) - bundan UZAKSA eslestirme GUVENILMEZ sayilip o el o
-# karede ATLANIR (yanlis sol/sag atamasi yapmaktansa o kareyi kacirmak
-# tercih edildi - proje boyunca benimsenen "supheliyse atla" ilkesi).
+
 EL_BILEK_ESLESTIRME_MAKS_MESAFE = 0.15
 
 PARMAK_OLAY_KESITI_AKTIF = False
 PARMAK_SOL_KLASORU = VIDEO_KLASORU / "sol_parmak"
 PARMAK_SAG_KLASORU = VIDEO_KLASORU / "sag_parmak"
 
-# --- GCS Motor Tepkisi Testi (M2-M5) --------------------------------------
-# !!! SEZGISEL/HEURISTIC - KESIN TIBBI OLCUM DEGIL !!! Bkz. gorsellik.
-# gcs_kol_tepkisini_sinifla docstring'i - sonuc bir klinisyenin KENDI
-# GOZLEMIYLE dogrulamasi gereken bir ON-ONERI, otomatik/nihai skor DEGIL.
-#
-# 'g' tusuyla baslatilir - MERKEZI (sternal ovma/supraorbital baski tarzi)
-# bir agrili uyaran verildigini VARSAYAR (uyarani klinisyen KENDISI
-# uygular, 'g' sadece "uyaran SIMDI verildi" anini isaretler). Ardindan
-# asagidaki sure boyunca HER IKI kolun tepkisi ayri ayri gozlenir.
-GCS_PENCERE_SANIYE = 4.0
-# Bu kadar (normalize, 0..1) toplam bilek yer degistirmesi OLMAZSA
-# "hareketsiz" (M1 adayi) sayilir.
-GCS_HAREKETSIZ_ESIK = 0.05
-# Bilek, pencere basindaki omuz (~kopruckkemigi) seviyesinin bu KADAR
-# YUKARISINA (normalize y, kucuk deger = ekranda yukari) cikarsa "uyarana
-# ulasmaya calisiyor" (lokalize ediyor, M5) sayilir.
-GCS_LOKALIZE_PAY = 0.03
-# Dirsek acisi baslangica gore EN AZ bu kadar (derece) KUCULURSE (asiri
-# bukulme) VE bilek klavikula seviyesine ulasamadiysa -> M3 (anormal
-# fleksiyon / dekortike postur).
-GCS_DEKORTIKE_DEGISIM_ESIK = 35.0
-# Dirsek acisi baslangica gore EN AZ bu kadar (derece) BUYURSE (daha da
-# gerilme/acilma) -> M2 (anormal ekstansiyon / deserebre postur).
-GCS_DESEREBRE_DEGISIM_ESIK = 25.0
-# Test bitince sonuc ekranda kac saniye gosterilsin.
-GCS_SONUC_GOSTERIM_SANIYE = 10.0
 
 # BlazePose (PoseLandmarker), kol/govde kadraj DISINDA kalsa bile 33 noktanin
 # HEPSI icin bir tahmin uretir - sadece "visibility" skoru dusuk olur. Bu
@@ -566,21 +348,7 @@ MAKS_BAKIS_SICRAMA = 0.35  # boyutsuz, vektor bileseni (-1..1) icin karede izin 
 
 VIDEO_FPS_VARSAYILAN = 15.0
 # --- UZAK KAMERA: SABIT BOLGE ZOOM (17.08.2026 eklendi) --------------------
-# SENARYO: webcam yerine hastadan UZAKTA/sabit duran (orn. tavana/koseye
-# monteli) bir kamera kullaniliyor - govde/kol/bacak genis acidan hala
-# gorulebiliyor ama YUZ ve PARMAK gibi INCE detaylar kadrajda cok kucuk
-# kaliyor, MediaPipe bunlari guvenilir tespit edemiyor.
-#
-# COZUM: bu bolgelerin EKRANDAKI konumu SABIT/degismiyor (kamera da hasta da
-# hareket ETMIYOR - takip_yakinlastir'daki gibi bir kisiyi "takip etmeye"
-# GEREK YOK) - bu yuzden konumlarini BIR KEZ, elle (nokta_sec.py ile fare
-# tiklayarak) isaretleyip ayarlar.BOLGE_NOKTALARI_DOSYASI'na kaydediyoruz.
-# gaze_birlesik_uzak.py (bkz. o dosyanin basindaki aciklama) HER karede bu
-# SABIT noktalarin etrafini kirpip buyutur (zoom yapar) ve tespiti DOGRUDAN
-# bu buyutulmus panel uzerinde calistirir - kucuk/uzak goruntude kaybolan
-# yuz/parmak hareketleri boylece yakalanir. Panel basina AYRI bir pencerede
-# ("bolunmus ekran") gosterilir; parmak icin ayri, yuz icin ayri panel.
-#
+
 # NOT: bu SADECE gaze_birlesik_uzak.py tarafindan kullanilir - normal
 # webcam'de calisan gaze_birlesik.py'ye (ve oradaki takip_yakinlastir/
 # DIJITAL_YAKINLASTIRMA mantigina) HICBIR sekilde dokunulmadi/etkilenmedi.
@@ -599,31 +367,39 @@ BOLGE_ZOOM_ORANI_VARSAYILAN = 6.0
 BOLGE_PANEL_GENISLIK = 320
 BOLGE_PANEL_YUKSEKLIK = 320
 
-# --- EL BOLGESI PARMAK ALGISI: MUTLAK KONUM (18.08.2026, ------------------
-# kullanici karariyla degistirildi) -----------------------------------------
-# ESKIDEN: parmak ucu konumu bilege GORELI (govdeye_goreli_konum) ve el
-# buyuklugune OLCEKLENMIS olarak izleniyordu - "el" bolgesi COK SIKI
-# kirpilirsa (yuksek BOLGE_ZOOM_ORANI) bilek kirpma alaninin disinda
-# kalabiliyordu, MediaPipe yine de bir tahmin URETIYORDU ama bu tahmin
-# kareden kareye COK oynak olabiliyordu - bilek HEM referans HEM olcek icin
-# kullanildigindan, oynak bilek 5 parmak ucunun TUMUNU AYNI ANDA yanlis
-# tetikliyordu (gercek kullanici videosuyla dogrulandi, 18.08.2026).
-#
-# ARTIK: gaze_birlesik_uzak.py'de "el" bolgeleri bilek referansi/olcegi HIC
-# KULLANMIYOR - her parmak ucunun panel icindeki MUTLAK (normalize 0..1)
-# konumu DOGRUDAN parmak_hareket_algila'ya veriliyor (bkz. o dosyadaki "el"
-# blogu). Bu, SABIT kamera + buyuk olcude SABIT duran bir el senaryosunda
-# (bu projenin hedefledigi kullanim) govdeye_goreli_konum'un COZMEYE
-# calistigi "kisi kameraya yakin/uzak, govde kayiyor" sorunlarini ZATEN
-# YASAMADIGIMIZ icin gereksiz karmasiklik + bilek-gurultusu riskini birlikte
-# ortadan kaldiriyor. BEDELI: elin/bilegin GERCEKTEN yer degistirmesi de
-# (parmaklar kipirdamasa bile) parmak hareketi gibi sayilabilir - kamera ve
-# el konumu sabit kaldigi surece pratikte sorun olmaz.
-#
-# ONEMLI - OLCEK DEGISTI: PARMAK_HIZ_ESIK artik "el buyuklugune orantili"
-# degil, DOGRUDAN panel genisliginin/yuksekliginin bir orani (0..1) - eski
-# goreli degerlerden (orn. 0.04-0.12) COK KUCUK olmasi gerekiyordu, yeni
-# varsayilan 0.015 (yukarida). Yanlis pozitif GORURSEN (el/parmaklar sabitken
-# sayac artiyorsa) 0.02-0.03'e YUKSELT; hassasiyet YETERSIZSE (gercek
-# hareket yakalanmiyorsa) 0.01'e kadar DUSUR. Ekrandaki "HIZ" yazisini
-# izleyerek elin/kameranin ZOOM oranina gore ince ayar yapabilirsin.
+
+
+
+
+# CIHAZ SECIMI: bu makinede BIRDEN FAZLA mikrofon var (orn. "python -c
+# "import sounddevice as sd; print(sd.query_devices())"" ile listelenebilir) -
+# kamera USB'sindeki mikrofon (hastaya yakinsa DOGRU secim, "ALGILAMA" icin)
+# ile bilgisayarin KENDI dahili mikrofonu (kullaniciya yakinsa "interkom
+# konusma" icin daha DOGRU olabilir) FARKLI cihazlar olabilir. None = sistem
+# varsayilani - fiziksel kurulumunuza gore SES_GIRIS_CIHAZI'ni ilgili cihazin
+# INDEKSINE (yukaridaki listeden) ayarlayin.
+SES_GIRIS_CIHAZI = None   # mikrofon (None = sistem varsayilani)
+SES_CIKIS_CIHAZI = None   # hoparlor (None = sistem varsayilani)
+
+SES_ORNEKLEME_HIZI = 16000  # Hz - konusma icin yeterli, dusuk CPU/gecikme
+SES_BLOK_BOYUTU = 512       # kac ornekte bir callback tetiklenir (~32ms @16kHz)
+
+# Ses seviyesi (RMS, 0..1 araligina yakin float32) esikleri - KOL/BACAK/KAFA
+# ile AYNI giris/cikis-histerezis FIKRI (bkz. gorsellik.hareket_algila), YENI
+# ("kare" degil zaman/saniye tabanli, cunku ses callback'i video karesinden
+# BAGIMSIZ/farkli bir hizda calisir) bir debounce ile: "SES ALGILANDI" olayi
+# gercek ses/konusma BASLADIGINDA bir kez sayilir, ayni ses SURERKEN tekrar
+# tekrar sayilmaz. HENUZ gercek mikrofon kaydiyla KALIBRE EDILMEDI - cok
+# hassassa (sessizlikte bile sayiyorsa) YUKSELT, kaciriyorsa DUSUR (ses.py
+# gelecekte bir TANI/debug satirinda canli RMS degerini gosterebilir).
+SES_ALGILAMA_ESIK = 0.02
+SES_ALGILAMA_HISTEREZIS_ORANI = 0.5
+SES_ALGILAMA_MIN_CIKIS_SANIYE = 0.3
+
+# passthrough (mikrofon->hoparlor canli gecis) CIKISI bu RMS'in USTUNDEYKEN
+# (yani kullanicinin sesi hoparlorden CALINIYORKEN) SES ALGILAMA o anlik
+# olarak DURDURULUR - hoparlorden cikan kendi sesimizin mikrofona sizip
+# "yatan kisi ses cikardi" sanilmasini (akustik geri besleme/yanlis pozitif)
+# onlemek icin. Passthrough KAPALIYKEN bu kontrolun hicbir etkisi yok
+# (cikis her zaman sessiz).
+SES_PASSTHROUGH_ESIK = 0.01
